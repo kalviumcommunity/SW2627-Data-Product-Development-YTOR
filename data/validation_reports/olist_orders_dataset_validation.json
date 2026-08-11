@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-08-11T10:11:14.158910",
+  "filepath": "C:\\Users\\sreey\\OneDrive\\Desktop\\WI integration -YTOR\\raw data\\olist_orders_dataset.csv",
+  "status": "success",
+  "checks": {
+    "file_exists": "File exists and has content",
+    "format": "Format valid: csv",
+    "encoding": "Detected encoding: ascii (100%)",
+    "schema": "Schema valid"
+  },
+  "statistics": {
+    "rows": 99441,
+    "columns": 8,
+    "file_size_mb": 16.837
+  }
+}

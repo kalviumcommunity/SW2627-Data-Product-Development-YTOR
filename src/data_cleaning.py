@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Dict
 
 import pandas as pd
+from src.intake_validation import generate_validation_report
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 RAW_DATA_DIR = ROOT_DIR / "raw data"
 OUTPUT_DIR = ROOT_DIR / "data" / "cleaned"
+VALIDATION_REPORT_DIR = ROOT_DIR / "data" / "validation_reports"
 
 
 def _clean_text(series: pd.Series, fill_value: str = "Unknown") -> pd.Series:
@@ -33,21 +35,152 @@ def _ensure_output_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def _validate_raw_csv(filepath: Path, expected_cols: list[str], report_name: str) -> None:
+    report_path = VALIDATION_REPORT_DIR / report_name
+    _ensure_output_dir(VALIDATION_REPORT_DIR)
+    report = generate_validation_report(
+        filepath,
+        expected_cols,
+        output_path=report_path,
+        expected_encoding="utf-8",
+        allowed_formats=["csv"],
+    )
+    if report["status"] != "success":
+        raise ValueError(f"Raw intake validation failed for {filepath}: {report['checks']}")
+
+
 def clean_datasets(raw_data_dir: Path | str = RAW_DATA_DIR, output_dir: Path | str = OUTPUT_DIR) -> Dict[str, pd.DataFrame]:
     """Load and clean the raw Olist-style CSV files from the raw data folder."""
     raw_data_dir = Path(raw_data_dir)
     output_dir = Path(output_dir)
     _ensure_output_dir(output_dir)
 
-    customers = pd.read_csv(raw_data_dir / "olist_customers_dataset.csv")
-    geolocation = pd.read_csv(raw_data_dir / "olist_geolocation_dataset.csv")
-    order_items = pd.read_csv(raw_data_dir / "olist_order_items_dataset.csv")
-    order_payments = pd.read_csv(raw_data_dir / "olist_order_payments_dataset.csv")
-    reviews = pd.read_csv(raw_data_dir / "olist_order_reviews_dataset.csv")
-    orders = pd.read_csv(raw_data_dir / "olist_orders_dataset.csv")
-    products = pd.read_csv(raw_data_dir / "olist_products_dataset.csv")
-    sellers = pd.read_csv(raw_data_dir / "olist_sellers_dataset.csv")
-    category_translation = pd.read_csv(raw_data_dir / "product_category_name_translation.csv")
+    customers_path = raw_data_dir / "olist_customers_dataset.csv"
+    geolocation_path = raw_data_dir / "olist_geolocation_dataset.csv"
+    order_items_path = raw_data_dir / "olist_order_items_dataset.csv"
+    order_payments_path = raw_data_dir / "olist_order_payments_dataset.csv"
+    reviews_path = raw_data_dir / "olist_order_reviews_dataset.csv"
+    orders_path = raw_data_dir / "olist_orders_dataset.csv"
+    products_path = raw_data_dir / "olist_products_dataset.csv"
+    sellers_path = raw_data_dir / "olist_sellers_dataset.csv"
+    category_translation_path = raw_data_dir / "product_category_name_translation.csv"
+
+    _validate_raw_csv(
+        customers_path,
+        [
+            "customer_id",
+            "customer_unique_id",
+            "customer_zip_code_prefix",
+            "customer_city",
+            "customer_state",
+        ],
+        "olist_customers_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        geolocation_path,
+        [
+            "geolocation_zip_code_prefix",
+            "geolocation_lat",
+            "geolocation_lng",
+            "geolocation_city",
+            "geolocation_state",
+        ],
+        "olist_geolocation_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        order_items_path,
+        [
+            "order_id",
+            "order_item_id",
+            "product_id",
+            "seller_id",
+            "shipping_limit_date",
+            "price",
+            "freight_value",
+        ],
+        "olist_order_items_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        order_payments_path,
+        [
+            "order_id",
+            "payment_sequential",
+            "payment_type",
+            "payment_installments",
+            "payment_value",
+        ],
+        "olist_order_payments_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        reviews_path,
+        [
+            "review_id",
+            "order_id",
+            "review_score",
+            "review_comment_title",
+            "review_comment_message",
+            "review_creation_date",
+            "review_answer_timestamp",
+        ],
+        "olist_order_reviews_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        orders_path,
+        [
+            "order_id",
+            "customer_id",
+            "order_status",
+            "order_purchase_timestamp",
+            "order_approved_at",
+            "order_delivered_carrier_date",
+            "order_delivered_customer_date",
+            "order_estimated_delivery_date",
+        ],
+        "olist_orders_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        products_path,
+        [
+            "product_id",
+            "product_category_name",
+            "product_name_lenght",
+            "product_description_lenght",
+            "product_photos_qty",
+            "product_weight_g",
+            "product_length_cm",
+            "product_height_cm",
+            "product_width_cm",
+        ],
+        "olist_products_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        sellers_path,
+        [
+            "seller_id",
+            "seller_zip_code_prefix",
+            "seller_city",
+            "seller_state",
+        ],
+        "olist_sellers_dataset_validation.json",
+    )
+    _validate_raw_csv(
+        category_translation_path,
+        [
+            "product_category_name",
+            "product_category_name_english",
+        ],
+        "product_category_name_translation_validation.json",
+    )
+
+    customers = pd.read_csv(customers_path, encoding="utf-8-sig")
+    geolocation = pd.read_csv(geolocation_path, encoding="utf-8-sig")
+    order_items = pd.read_csv(order_items_path, encoding="utf-8-sig")
+    order_payments = pd.read_csv(order_payments_path, encoding="utf-8-sig")
+    reviews = pd.read_csv(reviews_path, encoding="utf-8-sig")
+    orders = pd.read_csv(orders_path, encoding="utf-8-sig")
+    products = pd.read_csv(products_path, encoding="utf-8-sig")
+    sellers = pd.read_csv(sellers_path, encoding="utf-8-sig")
+    category_translation = pd.read_csv(category_translation_path, encoding="utf-8-sig")
 
     # Customer and seller geography
     customers["customer_id"] = customers["customer_id"].astype(str).str.strip()
