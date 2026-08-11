@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-08-11T10:11:16.232573",
+  "filepath": "C:\\Users\\sreey\\OneDrive\\Desktop\\WI integration -YTOR\\raw data\\product_category_name_translation.csv",
+  "status": "success",
+  "checks": {
+    "file_exists": "File exists and has content",
+    "format": "Format valid: csv",
+    "encoding": "Detected encoding: UTF-8-SIG (100%)",
+    "schema": "Schema valid"
+  },
+  "statistics": {
+    "rows": 71,
+    "columns": 2,
+    "file_size_mb": 0.002
+  }
+}
