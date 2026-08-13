@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-11T13:11:50.243732",
+  "timestamp": "2026-08-13T17:21:12.969040",
   "filepath": "C:\\Users\\sreey\\OneDrive\\Desktop\\WI integration -YTOR\\raw data\\olist_order_items_dataset.csv",
   "status": "success",
   "checks": {
@@ -11,6 +11,6 @@
   "statistics": {
     "rows": 112650,
     "columns": 7,
-    "file_size_mb": 14.723
+    "file_size_mb": 14.831
   }
 }
