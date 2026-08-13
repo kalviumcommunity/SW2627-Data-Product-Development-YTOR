@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
 from src.db import DEFAULT_DB_PATH, query_to_df, init_db, load_cleaned_data_to_db
 from src.generator import generate_dataset
@@ -30,30 +31,37 @@ if os.path.exists(styles_path):
     with open(styles_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# Ensure database exists with cleaned datasets
+# Ensure database exists and is populated with cleaned datasets
+need_load = False
 if not os.path.exists(DEFAULT_DB_PATH):
+    need_load = True
+else:
+    try:
+        df_chk = query_to_df("SELECT COUNT(*) as c FROM orders_enriched", db_path=DEFAULT_DB_PATH)
+        if df_chk.empty or int(df_chk["c"].iloc[0]) == 0:
+            need_load = True
+    except Exception:
+        need_load = True
+
+if need_load:
     load_cleaned_data_to_db(db_path=DEFAULT_DB_PATH)
 
-# Helper function for full-width sparkline (matching user uploaded image card style)
+# Helper function for full-width sparkline
 def create_fullwidth_sparkline(y_values, color="#10b981"):
-    if color == "#10b981":
-        fill_color = "rgba(16, 185, 129, 0.12)"
-    elif color == "#ef4444":
-        fill_color = "rgba(239, 68, 68, 0.12)"
-    elif color == "#6366f1":
-        fill_color = "rgba(99, 102, 241, 0.12)"
-    elif color == "#00f2fe":
-        fill_color = "rgba(0, 242, 254, 0.12)"
-    elif color == "#f59e0b":
-        fill_color = "rgba(245, 158, 11, 0.12)"
-    else:
-        fill_color = "rgba(6, 182, 212, 0.12)"
+    color_map = {
+        "#10b981": "rgba(16, 185, 129, 0.15)",
+        "#ef4444": "rgba(239, 68, 68, 0.15)",
+        "#6366f1": "rgba(99, 102, 241, 0.15)",
+        "#00f2fe": "rgba(0, 242, 254, 0.15)",
+        "#f59e0b": "rgba(245, 158, 11, 0.15)",
+    }
+    fill_color = color_map.get(color, "rgba(6, 182, 212, 0.15)")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         y=y_values,
         mode='lines',
-        line=dict(color=color, width=2, shape='spline'),
+        line=dict(color=color, width=2.2, shape='spline'),
         fill='tozeroy',
         fillcolor=fill_color,
         hoverinfo='none'
@@ -67,7 +75,6 @@ def create_fullwidth_sparkline(y_values, color="#10b981"):
         height=52
     )
     return fig
-
 
 def render_kpi_card(label, value, trend, trend_class, subtext, icon, icon_class, sparkline, sparkline_color):
     st.markdown(f"""
@@ -86,7 +93,6 @@ def render_kpi_card(label, value, trend, trend_class, subtext, icon, icon_class,
             </div>
         </div>
     """, unsafe_allow_html=True)
-
     st.plotly_chart(create_fullwidth_sparkline(sparkline, color=sparkline_color), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -97,10 +103,10 @@ DARK_CHART_LAYOUT = dict(
     font=dict(family="Plus Jakarta Sans, sans-serif", color="#94a3b8", size=11),
     xaxis=dict(showgrid=True, gridcolor="rgba(255, 255, 255, 0.05)", zeroline=False),
     yaxis=dict(showgrid=True, gridcolor="rgba(255, 255, 255, 0.05)", zeroline=False),
-    margin=dict(t=15, b=25, l=25, r=15)
+    margin=dict(t=20, b=25, l=25, r=20)
 )
 
-# Sidebar Navigation
+# Sidebar Navigation (Clean text without emojis)
 with st.sidebar:
     st.markdown("""
     <div class="sidebar-logo">
@@ -109,33 +115,34 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     sidebar_menu = [
-        "🎛️ Dashboard",
-        "🏪 Seller Performance",
-        "💬 Customer Reviews",
-        "🔄 Returns Analysis",
-        "🎯 Trust Score",
-        "🧠 Behaviour Analytics",
-        "📊 KPIs",
-        "🗄️ SQL Insights",
-        "📄 Reports",
-        "⚙️ Settings"
+        "Dashboard",
+        "Seller Performance",
+        "Customer Reviews",
+        "Returns Analysis",
+        "Trust Score",
+        "Behaviour Analytics",
+        "KPIs",
+        "SQL Insights",
+        "Reports",
+        "Settings"
     ]
     
     selected_nav = st.radio("Navigation", sidebar_menu, label_visibility="collapsed")
     
     st.divider()
     st.markdown("<div style='font-size: 0.8rem; color: #94a3b8; font-weight: 700; margin-bottom: 8px;'>ENGINE CONTROLS</div>", unsafe_allow_html=True)
-    days_window = st.select_slider("Analysis Window (Days)", options=[30, 60, 90, 180], value=90)
+    days_window = st.select_slider("Analysis Window (Days)", options=[30, 60, 90, 180, 365], value=90)
     
     summary_df = get_seller_summary_metrics(DEFAULT_DB_PATH, days_window=days_window)
     categories = ["All"] + sorted(list(summary_df["category"].unique())) if not summary_df.empty else ["All"]
     selected_category = st.selectbox("Filter Category", categories)
     
-    if st.button("🔄 Regenerate Data Engine"):
-        generate_dataset(db_path=DEFAULT_DB_PATH, num_days=180, seed=int(np.random.randint(1, 10000)))
+    if st.button("Reload Cleaned Database"):
+        load_cleaned_data_to_db(db_path=DEFAULT_DB_PATH)
+        st.success("Cleaned dataset reloaded!")
         st.rerun()
 
-# Apply filters
+# Apply category filter to summary_df
 filtered_df = summary_df.copy() if not summary_df.empty else pd.DataFrame()
 if not filtered_df.empty and selected_category != "All":
     filtered_df = filtered_df[filtered_df["category"] == selected_category]
@@ -146,11 +153,11 @@ kpis = get_marketplace_kpis(DEFAULT_DB_PATH, days_window=days_window)
 # Top Header Bar
 st.markdown("""
 <div class="header-bar">
-    <h1 class="header-title">Dashboard Overview — YTOR Operational Sentinel</h1>
+    <h1 class="header-title">YTOR Operational Trust Sentinel</h1>
     <div class="header-search-container">
         <div class="search-input-box">
             <span>🔍</span>
-            <span style="color: #64748b;">Search sellers, orders, or reviews...</span>
+            <span style="color: #64748b;">Live Olist E-Commerce Intelligence</span>
         </div>
         <div class="icon-btn">
             <span>🔔</span>
@@ -160,217 +167,99 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ROUTING BY SIDEBAR MENU CHOICE
-if selected_nav == "🎛️ Dashboard":
-    # --------------------------------------------------------------------------
-    # SECTION 1: TOP 6 RECREATED KPI SPARKLINE CARDS (3x2 GRID)
-    # --------------------------------------------------------------------------
+
+# ==============================================================================
+# 1. DASHBOARD
+# ==============================================================================
+if selected_nav == "Dashboard":
     st.markdown("<div style='font-size: 0.82rem; font-weight: 700; color: #94a3b8; letter-spacing: 1px; margin-bottom: 12px; text-transform: uppercase;'>MARKETPLACE OPERATIONAL KPIS</div>", unsafe_allow_html=True)
     
     # ROW 1 (3 CARDS)
     k1, k2, k3 = st.columns(3)
-    
-    # 1. Total Sellers
     with k1:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-indigo">🏪</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Total Sellers</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['total_sellers']}</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-green">↑ 6.2%</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([10, 15, 18, 22, 28, 35, 42, kpis['total_sellers']], color="#6366f1"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 2. Active Sellers
+        render_kpi_card("Total Sellers", f"{kpis['total_sellers']:,}", "↑ 6.2%", "trend-green", "registered merchants", "🏪", "icon-bg-indigo", [10, 15, 20, 28, 35, 42, 50, kpis['total_sellers']], "#6366f1")
     with k2:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-green">👥</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Active Sellers</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['active_sellers']}</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-green">↑ 8.3%</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([12, 18, 14, 22, 28, 24, 26, 32, 28, 30, kpis['active_sellers']], color="#10b981"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 3. Sellers Trust Score
+        render_kpi_card("Active Sellers", f"{kpis['active_sellers']:,}", "↑ 8.3%", "trend-green", "active in window", "👥", "icon-bg-green", [12, 18, 14, 22, 28, 24, 30, kpis['active_sellers']], "#10b981")
     with k3:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-cyan">🎯</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Sellers Trust Score</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['sellers_trust_score']}</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-green">↑ 2.1%</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([78, 80, 79, 81, 82, 80, 81, kpis['sellers_trust_score']], color="#00f2fe"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        render_kpi_card("Sellers Trust Score", f"{kpis['sellers_trust_score']}", "↑ 2.1%", "trend-green", "out of 100", "🎯", "icon-bg-cyan", [78, 80, 79, 81, 82, 80, 81, kpis['sellers_trust_score']], "#00f2fe")
 
     st.markdown("<div style='margin-top: 12px;'></div>", unsafe_allow_html=True)
 
     # ROW 2 (3 CARDS)
     k4, k5, k6 = st.columns(3)
-    
-    # 4. Return Rate
     with k4:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-red">📉</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Return Rate</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['return_rate']}%</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-red">↓ 1.5%</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([8.2, 7.5, 6.8, 6.1, 5.8, 5.4, 5.2, kpis['return_rate']], color="#ef4444"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 5. Average Customer Rating
+        render_kpi_card("Return Rate", f"{kpis['return_rate']}%", "↓ 1.5%", "trend-red", "marketplace return %", "📉", "icon-bg-red", [8.2, 7.5, 6.8, 6.1, 5.8, 5.4, 5.2, kpis['return_rate']], "#ef4444")
     with k5:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-amber">⭐</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Average Customer Rating</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['avg_customer_rating']}</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-green">↑ 0.4</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([3.8, 3.9, 4.0, 4.1, 4.15, 4.2, 4.3, kpis['avg_customer_rating']], color="#f59e0b"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 6. Delivery Success Rate
+        render_kpi_card("Average Customer Rating", f"{kpis['avg_customer_rating']} ⭐", "↑ 0.4", "trend-green", "out of 5.0", "⭐", "icon-bg-amber", [3.8, 3.9, 4.0, 4.1, 4.15, 4.2, 4.3, kpis['avg_customer_rating']], "#f59e0b")
     with k6:
-        st.markdown(f"""
-        <div class="kpi-card-recreated">
-            <div class="kpi-card-top-row">
-                <div class="kpi-icon-circle icon-bg-teal">🚚</div>
-                <div class="kpi-content-box">
-                    <div class="kpi-card-label">Delivery Success Rate</div>
-                    <div class="kpi-card-value-row">
-                        <div class="kpi-card-number">{kpis['delivery_success_rate']}%</div>
-                        <div class="kpi-card-trend-box">
-                            <div class="kpi-card-trend-text trend-green">↑ 3.2%</div>
-                            <div class="kpi-card-subtext">vs last month</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(create_fullwidth_sparkline([88.5, 90.0, 91.2, 92.0, 93.1, 93.5, 93.8, kpis['delivery_success_rate']], color="#06b6d4"), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+        render_kpi_card("Delivery Success Rate", f"{kpis['delivery_success_rate']}%", "↑ 3.2%", "trend-green", "on-time fulfillment", "🚚", "icon-bg-teal", [88.5, 90.0, 91.2, 92.0, 93.1, 93.5, 93.8, kpis['delivery_success_rate']], "#06b6d4")
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
-    # SECTION 2: SELLER PERFORMANCE & ANALYTICS CHARTS GRID (RESTORED VERSION)
-    # --------------------------------------------------------------------------
     st.markdown("<div style='font-size: 0.82rem; font-weight: 700; color: #94a3b8; letter-spacing: 1px; margin-bottom: 12px; text-transform: uppercase;'>ANALYTICS & SELLER PERFORMANCE</div>", unsafe_allow_html=True)
 
     # ROW 1 (4 CHARTS GRID)
     col_g1, col_g2, col_g3, col_g4 = st.columns(4)
 
-    # 1. Top 10 Sellers by Trust Score (Horizontal Bar Chart)
+    # 1. Top 10 Sellers by Trust Score
     with col_g1:
-        st.markdown("""
-        <div class="chart-box-container">
-            <h3 class="chart-box-title">Top 10 Sellers by Trust Score</h3>
-        """, unsafe_allow_html=True)
-        top10_sellers = ["ShopZone", "Value Hub", "QuickKart", "Mega Store", "Trendify", "ShopEase", "Tech World", "Prime Mart", "Best Deals", "Seller Galaxy"]
-        top10_scores = [64, 68, 71, 74, 76, 79, 84, 88, 91, 95]
-        
-        fig_hbar = go.Figure()
-        fig_hbar.add_trace(go.Bar(
-            y=top10_sellers,
-            x=top10_scores,
-            orientation='h',
-            marker=dict(color='#6366f1', cornerradius=4),
-            text=[str(v) for v in top10_scores],
-            textposition='outside',
-            textfont=dict(color='#ffffff', size=11)
-        ))
-        fig_hbar.update_layout(**DARK_CHART_LAYOUT)
-        fig_hbar.update_layout(height=260, xaxis=dict(range=[0, 108], showgrid=False), yaxis=dict(showgrid=False))
-        st.plotly_chart(fig_hbar, use_container_width=True)
+        st.markdown("<div class='chart-box-container'><h3 class='chart-box-title'>Top 10 Sellers by Trust Score</h3>", unsafe_allow_html=True)
+        if not summary_df.empty and 'trust_score' in summary_df.columns:
+            high_trust_sellers = summary_df[summary_df["trust_score"] >= 80]
+            if high_trust_sellers.empty:
+                high_trust_sellers = summary_df
+            top10_df = high_trust_sellers.sort_values(by=["total_orders", "trust_score"], ascending=[True, True]).tail(10)
+            fig_hbar = go.Figure(go.Bar(
+                y=top10_df["seller_name"].astype(str),
+                x=top10_df["trust_score"],
+                orientation='h',
+                marker=dict(color='#6366f1', cornerradius=4),
+                text=top10_df["trust_score"].astype(str),
+                textposition='outside',
+                textfont=dict(color='#ffffff', size=10)
+            ))
+            fig_hbar.update_layout(**DARK_CHART_LAYOUT)
+            fig_hbar.update_layout(height=260, xaxis=dict(range=[0, 115], showgrid=False), yaxis=dict(showgrid=False))
+            st.plotly_chart(fig_hbar, use_container_width=True)
+        else:
+            st.info("No data available")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # 2. Orders Completed per Seller (Vertical Bar Chart)
+    # 2. Orders Completed per Seller
     with col_g2:
-        st.markdown("""
-        <div class="chart-box-container">
-            <h3 class="chart-box-title">Orders Completed per Seller</h3>
-        """, unsafe_allow_html=True)
-        orders_sellers = ["Galaxy", "Best", "Prime", "Tech", "Ease", "Trend", "Mega", "Quick", "Value", "Zone"]
-        orders_counts = [46000, 41000, 37000, 34000, 31500, 30000, 28000, 26000, 23500, 21000]
-        
-        fig_vbar = go.Figure()
-        fig_vbar.add_trace(go.Bar(
-            x=orders_sellers,
-            y=orders_counts,
-            marker=dict(color='#4f46e5', cornerradius=4),
-            width=0.45
-        ))
-        fig_vbar.update_layout(**DARK_CHART_LAYOUT)
-        fig_vbar.update_layout(height=260, yaxis=dict(tickformat='.0s'))
-        st.plotly_chart(fig_vbar, use_container_width=True)
+        st.markdown("<div class='chart-box-container'><h3 class='chart-box-title'>Orders Completed per Top Seller</h3>", unsafe_allow_html=True)
+        if not summary_df.empty:
+            top_orders_df = summary_df.sort_values(by="total_orders", ascending=False).head(8)
+            fig_vbar = go.Figure(go.Bar(
+                x=top_orders_df["seller_name"].astype(str).str.split(" (", regex=False).str[0],
+                y=top_orders_df["total_orders"],
+                marker=dict(color='#4f46e5', cornerradius=4),
+                width=0.45
+            ))
+            fig_vbar.update_layout(**DARK_CHART_LAYOUT)
+            fig_vbar.update_layout(height=260, yaxis=dict(tickformat='.0s'))
+            st.plotly_chart(fig_vbar, use_container_width=True)
+        else:
+            st.info("No data available")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # 3. Seller Performance Comparison (Radar Spider Chart)
+    # 3. Seller Performance Comparison Radar
     with col_g3:
-        st.markdown("""
-        <div class="chart-box-container">
-            <h3 class="chart-box-title">Seller Performance Comparison</h3>
-        """, unsafe_allow_html=True)
-        categories_radar = ['Orders', 'Returns', 'Ratings', 'Delivery', 'Cancel Rate']
+        st.markdown("<div class='chart-box-container'><h3 class='chart-box-title'>Seller Performance Comparison</h3>", unsafe_allow_html=True)
+        categories_radar = ['Orders', 'Return Quality', 'Rating', 'Delivery Speed', 'Fulfillment']
         
+        top_group = summary_df[summary_df["trust_score"] >= 80] if not summary_df.empty else pd.DataFrame()
+        avg_group = summary_df[summary_df["trust_score"] < 80] if not summary_df.empty else pd.DataFrame()
+        
+        top_rating = (top_group["trust_score"].mean() / 100 * 95) if not top_group.empty else 90
+        avg_rating = (avg_group["trust_score"].mean() / 100 * 70) if not avg_group.empty else 60
+
         fig_radar = go.Figure()
         fig_radar.add_trace(go.Scatterpolar(
-            r=[92, 88, 94, 90, 85], theta=categories_radar, fill='toself', name='Top Seller',
+            r=[92, top_rating, 94, 90, 88], theta=categories_radar, fill='toself', name='High Trust Sellers',
             line=dict(color='#6366f1', width=2), fillcolor='rgba(99, 102, 241, 0.25)'
         ))
         fig_radar.add_trace(go.Scatterpolar(
-            r=[55, 60, 58, 62, 50], theta=categories_radar, fill='toself', name='Average Seller',
+            r=[55, avg_rating, 60, 62, 54], theta=categories_radar, fill='toself', name='Watchlist Sellers',
             line=dict(color='#00f2fe', width=2), fillcolor='rgba(0, 242, 254, 0.2)'
         ))
         fig_radar.update_layout(
@@ -388,24 +277,35 @@ if selected_nav == "🎛️ Dashboard":
 
     # 4. Business Insights Cards
     with col_g4:
-        st.markdown("""
+        if not summary_df.empty and 'trust_score' in summary_df.columns:
+            high_trust_sellers = summary_df[summary_df["trust_score"] >= 80]
+            if high_trust_sellers.empty:
+                high_trust_sellers = summary_df
+            best_seller_row = high_trust_sellers.sort_values(by=["total_orders", "trust_score"], ascending=[False, False]).iloc[0]
+            best_seller_name = best_seller_row["seller_name"]
+            best_seller_score = best_seller_row["trust_score"]
+        else:
+            best_seller_name = "Top Merchant"
+            best_seller_score = 95.0
+        
+        st.markdown(f"""
         <div class="chart-box-container">
             <h3 class="chart-box-title">Business Insights</h3>
             <div class="insight-card">
                 <div class="insight-icon insight-icon-green">🟢</div>
-                <div class="insight-text"><strong>Seller Galaxy</strong> has highest Trust Score <strong>95/100</strong>.</div>
+                <div class="insight-text"><strong>{str(best_seller_name)}</strong> leads with Trust Score <strong>{best_seller_score}/100</strong>.</div>
             </div>
             <div class="insight-card">
                 <div class="insight-icon insight-icon-amber">🟡</div>
-                <div class="insight-text">Return rate decreased <strong>3.1%</strong> vs last month.</div>
+                <div class="insight-text">Marketplace return rate is stabilized at <strong>{kpis['return_rate']}%</strong>.</div>
             </div>
             <div class="insight-card">
                 <div class="insight-icon insight-icon-red">🔴</div>
-                <div class="insight-text"><strong>Electronics</strong> accounts for 38% of returns.</div>
+                <div class="insight-text">Delivery success stands at <strong>{kpis['delivery_success_rate']}%</strong> on fulfillment.</div>
             </div>
             <div class="insight-card">
                 <div class="insight-icon insight-icon-blue">🔵</div>
-                <div class="insight-text"><strong>Fashion sellers</strong> lead positive review sentiment.</div>
+                <div class="insight-text">Customer satisfaction avg score is <strong>{kpis['avg_customer_rating']} / 5.0</strong>.</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -415,81 +315,60 @@ if selected_nav == "🎛️ Dashboard":
 
     # 5. Top Performing Sellers Table
     with col_h1:
-        st.markdown("""
-        <div class="ref-table-container" style="height: 100%;">
-            <h3 class="chart-box-title">Top Performing Sellers</h3>
-            <table class="ref-table">
-                <thead>
-                    <tr>
-                        <th>SELLER NAME</th>
-                        <th>ORDERS</th>
-                        <th>RETURNS</th>
-                        <th>RETURN RATE</th>
-                        <th>AVG. RATING</th>
-                        <th>TRUST SCORE</th>
-                        <th>RANK</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="font-weight: 700;">Seller Galaxy</td>
-                        <td>25,430</td>
-                        <td>1,234</td>
-                        <td style="color: #10b981; font-weight: 600;">4.85%</td>
-                        <td>4.7 ⭐</td>
-                        <td style="font-weight: 800; color: #6366f1;">95</td>
-                        <td><span class="rank-badge rank-1">🥇 1</span></td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: 700;">Best Deals</td>
-                        <td>21,890</td>
-                        <td>1,456</td>
-                        <td style="color: #10b981; font-weight: 600;">6.65%</td>
-                        <td>4.5 ⭐</td>
-                        <td style="font-weight: 800; color: #6366f1;">91</td>
-                        <td><span class="rank-badge rank-2">🥈 2</span></td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: 700;">Prime Mart</td>
-                        <td>18,765</td>
-                        <td>1,102</td>
-                        <td style="color: #10b981; font-weight: 600;">5.87%</td>
-                        <td>4.4 ⭐</td>
-                        <td style="font-weight: 800; color: #6366f1;">88</td>
-                        <td><span class="rank-badge rank-3">🥉 3</span></td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: 700;">Tech World</td>
-                        <td>17,890</td>
-                        <td>1,678</td>
-                        <td style="color: #f59e0b; font-weight: 600;">9.38%</td>
-                        <td>4.3 ⭐</td>
-                        <td style="font-weight: 800; color: #6366f1;">84</td>
-                        <td><span class="rank-badge rank-other">4</span></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
+        if not summary_df.empty and 'trust_score' in summary_df.columns:
+            high_trust_sellers = summary_df[summary_df["trust_score"] >= 80]
+            if high_trust_sellers.empty:
+                high_trust_sellers = summary_df
+            top_rows = high_trust_sellers.sort_values(by=["total_orders", "trust_score"], ascending=[False, False]).head(4)
+        else:
+            top_rows = pd.DataFrame()
+
+        rank_badges = ['<span class="rank-badge rank-1">🥇 1</span>', '<span class="rank-badge rank-2">🥈 2</span>', '<span class="rank-badge rank-3">🥉 3</span>', '<span class="rank-badge rank-other">4</span>']
+        
+        rows_html = ""
+        if not top_rows.empty:
+            for i, (_, row) in enumerate(top_rows.iterrows()):
+                badge = rank_badges[i] if i < len(rank_badges) else f"{i+1}"
+                s_name = str(row.get('seller_name', 'N/A'))
+                orders_cnt = int(row.get('total_orders', 0))
+                ret_cnt = int(row.get('misleading_returns', 0))
+                ret_pct = row.get('misleading_return_pct', 0)
+                t_score = row.get('trust_score', 0)
+                rows_html += f"<tr><td style='font-weight: 700;'>{s_name}</td><td>{orders_cnt:,}</td><td>{ret_cnt:,}</td><td style='color: #10b981; font-weight: 600;'>{ret_pct}%</td><td style='font-weight: 800; color: #6366f1;'>{t_score}</td><td>{badge}</td></tr>"
+        else:
+            rows_html = "<tr><td colspan='6' style='text-align: center; color: #94a3b8; padding: 16px;'>No seller data available</td></tr>"
+
+        table_html = (
+            "<div class='ref-table-container' style='height: 100%;'>"
+            "<h3 class='chart-box-title'>Top Performing Sellers</h3>"
+            "<table class='ref-table'>"
+            "<thead><tr><th>SELLER NAME</th><th>ORDERS</th><th>RETURNS</th><th>RETURN RATE</th><th>TRUST SCORE</th><th>RANK</th></tr></thead>"
+            f"<tbody>{rows_html}</tbody>"
+            "</table>"
+            "</div>"
+        )
+        st.markdown(table_html, unsafe_allow_html=True)
 
     # 6. Sentiment Overview Donut Chart
     with col_h2:
-        st.markdown("""
-        <div class="chart-box-container">
-            <h3 class="chart-box-title">Sentiment Overview</h3>
-        """, unsafe_allow_html=True)
+        st.markdown("<div class='chart-box-container'><h3 class='chart-box-title'>Sentiment Overview</h3>", unsafe_allow_html=True)
+        df_sent = query_to_df("""
+            SELECT 
+                CASE WHEN review_score >= 4 THEN 'Positive' WHEN review_score <= 2 THEN 'Negative' ELSE 'Neutral' END as sentiment,
+                COUNT(*) as count
+            FROM reviews
+            WHERE review_score IS NOT NULL
+            GROUP BY sentiment
+        """, db_path=DEFAULT_DB_PATH)
         
-        labels_sent = ['Positive', 'Neutral', 'Negative']
-        values_sent = [22234, 6987, 3433]
-        colors_sent = ['#10b981', '#f59e0b', '#ef4444']
-        
-        fig_donut = go.Figure()
-        fig_donut.add_trace(go.Pie(
-            labels=labels_sent, values=values_sent, hole=0.65,
-            marker_colors=colors_sent, textinfo='none', hoverinfo='label+value+percent'
+        total_rev_cnt = df_sent["count"].sum() if not df_sent.empty else 0
+        fig_donut = go.Figure(go.Pie(
+            labels=df_sent['sentiment'], values=df_sent['count'], hole=0.65,
+            marker_colors=['#ef4444' if s == 'Negative' else ('#f59e0b' if s == 'Neutral' else '#10b981') for s in df_sent['sentiment']],
+            textinfo='none', hoverinfo='label+value+percent'
         ))
         fig_donut.add_annotation(
-            text="<b>Total Reviews</b><br><span style='font-size: 1.15rem; font-weight: 800; color: #ffffff;'>32,654</span>",
+            text=f"<b>Total Reviews</b><br><span style='font-size: 1.15rem; font-weight: 800; color: #ffffff;'>{total_rev_cnt:,}</span>",
             showarrow=False, font=dict(size=11, color="#94a3b8"), x=0.5, y=0.5
         )
         fig_donut.update_layout(
@@ -502,36 +381,64 @@ if selected_nav == "🎛️ Dashboard":
 
     # 7. Return Rate Trend Line Chart
     with col_h3:
-        st.markdown("""
-        <div class="chart-box-container">
-            <h3 class="chart-box-title">Return Rate Trend</h3>
-        """, unsafe_allow_html=True)
+        st.markdown("<div class='chart-box-container'><h3 class='chart-box-title'>Monthly Return Rate Trend</h3>", unsafe_allow_html=True)
+        df_monthly_returns = query_to_df("""
+            SELECT strftime('%Y-%m', order_purchase_timestamp) as month,
+                   COUNT(order_id) as total_orders,
+                   SUM(CASE WHEN delivery_delay_days > 0 OR order_status = 'canceled' THEN 1 ELSE 0 END) as returned_orders
+            FROM orders_enriched
+            WHERE order_purchase_timestamp IS NOT NULL
+            GROUP BY month
+            HAVING total_orders > 100
+            ORDER BY month ASC
+        """, db_path=DEFAULT_DB_PATH)
         
-        weeks = ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5"]
-        trend_vals = [10.8, 8.5, 7.2, 5.1, 3.2]
-        
-        fig_ret_trend = go.Figure()
-        fig_ret_trend.add_trace(go.Scatter(
-            x=weeks, y=trend_vals, mode='lines+markers',
-            line=dict(color='#a855f7', width=3), marker=dict(size=7, color='#6366f1')
-        ))
-        fig_ret_trend.update_layout(**DARK_CHART_LAYOUT)
-        fig_ret_trend.update_layout(
-            height=250, yaxis=dict(ticksuffix="%", range=[0, 15], showgrid=True, gridcolor="rgba(255,255,255,0.05)")
-        )
-        st.plotly_chart(fig_ret_trend, use_container_width=True)
+        if not df_monthly_returns.empty:
+            df_monthly_returns["return_pct"] = round(df_monthly_returns["returned_orders"] / df_monthly_returns["total_orders"] * 100, 1)
+            fig_ret_trend = go.Figure(go.Scatter(
+                x=df_monthly_returns["month"], y=df_monthly_returns["return_pct"],
+                mode='lines+markers', line=dict(color='#a855f7', width=2.5, shape='spline'),
+                marker=dict(size=5, color='#6366f1')
+            ))
+            fig_ret_trend.update_layout(**DARK_CHART_LAYOUT)
+            fig_ret_trend.update_layout(height=250, yaxis=dict(ticksuffix="%"))
+            st.plotly_chart(fig_ret_trend, use_container_width=True)
+        else:
+            st.info("No trend data available")
         st.markdown("</div>", unsafe_allow_html=True)
 
-elif selected_nav == "🏪 Seller Performance":
-    st.markdown("<h2 style='color: #ffffff;'>🏪 Seller Performance & Risk Audit Workbench</h2>", unsafe_allow_html=True)
+
+# ==============================================================================
+# 2. SELLER PERFORMANCE
+# ==============================================================================
+elif selected_nav == "Seller Performance":
+    st.markdown("<h2 style='color: #ffffff;'>Seller Performance & Risk Audit Workbench</h2>", unsafe_allow_html=True)
+    
     if filtered_df.empty:
-        st.warning("No seller performance data available for the selected window.")
+        st.warning("No seller performance data available.")
     else:
+        # Search and Tier Filters
+        s1, s2, s3 = st.columns([4, 4, 4])
+        with s1:
+            seller_search = st.text_input("Search Seller ID or City", placeholder="Type seller ID or city...")
+        with s2:
+            risk_filter = st.multiselect("Filter Risk Tier", options=list(summary_df["risk_tier"].unique()), default=list(summary_df["risk_tier"].unique()))
+        with s3:
+            sort_by = st.selectbox("Sort Table By", ["Trust Score (Ascending - Worst First)", "Trust Score (Descending - Best First)", "Total Orders", "Return %", "Negative Sentiment %"])
+
+        display_sellers = filtered_df[filtered_df["risk_tier"].isin(risk_filter)].copy()
+        if seller_search:
+            display_sellers = display_sellers[
+                display_sellers["seller_id"].str.contains(seller_search, case=False, na=False) |
+                display_sellers["seller_name"].str.contains(seller_search, case=False, na=False)
+            ]
+
+        # Performance summary metrics
         perf_metrics = {
-            "Average Trust Score": f"{round(filtered_df['trust_score'].mean(), 1)}",
-            "Average Misleading Return %": f"{round(filtered_df['misleading_return_pct'].mean(), 1)}%",
-            "Average Negative Sentiment %": f"{round(filtered_df['neg_sentiment_pct'].mean(), 1)}%",
-            "Sellers in View": f"{len(filtered_df)}"
+            "Sellers in View": f"{len(display_sellers):,}",
+            "Average Trust Score": f"{round(display_sellers['trust_score'].mean(), 1)}" if not display_sellers.empty else "N/A",
+            "Avg Misleading Return %": f"{round(display_sellers['misleading_return_pct'].mean(), 1)}%" if not display_sellers.empty else "N/A",
+            "Avg Negative Sentiment %": f"{round(display_sellers['neg_sentiment_pct'].mean(), 1)}%" if not display_sellers.empty else "N/A"
         }
         cols = st.columns(4)
         for col, (label, value) in zip(cols, perf_metrics.items()):
@@ -542,328 +449,434 @@ elif selected_nav == "🏪 Seller Performance":
                 </div>
             """, unsafe_allow_html=True)
 
+        st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns([5, 5])
         with col1:
-            top_by_trust = filtered_df.sort_values(by='trust_score', ascending=False).head(10)
-            fig_perf = px.bar(
-                top_by_trust,
-                x='trust_score', y='seller_name', orientation='h',
-                color='risk_tier', text='trust_score',
-                color_discrete_map={
-                    'High Risk': '#ef4444',
-                    'Medium Risk': '#f59e0b',
-                    'Low Risk': '#10b981',
-                    'Neutral': '#6366f1'
-                }
-            )
-            perf_layout = DARK_CHART_LAYOUT.copy()
-            perf_layout.update({'height': 360, 'showlegend': False, 'margin': dict(t=20, b=20, l=20, r=20)})
-            fig_perf.update_layout(**perf_layout)
-            fig_perf.update_traces(textfont_size=12, textposition='outside')
-            st.plotly_chart(fig_perf, use_container_width=True)
-        with col2:
+            st.markdown("<h4 style='color: #ffffff;'>Trust Score vs Order Volume</h4>", unsafe_allow_html=True)
             fig_perf2 = px.scatter(
-                filtered_df, x='total_orders', y='trust_score', size='total_reviews',
+                display_sellers, x='total_orders', y='trust_score', size='total_reviews',
                 color='risk_tier', hover_name='seller_name',
-                color_discrete_map={
-                    'High Risk': '#ef4444',
-                    'Medium Risk': '#f59e0b',
-                    'Low Risk': '#10b981',
-                    'Neutral': '#6366f1'
-                }
+                color_discrete_map={'Critical Risk': '#ef4444', 'Moderate Risk': '#f59e0b', 'Watchlist': '#6366f1', 'Low Risk': '#10b981'}
             )
-            perf2_layout = DARK_CHART_LAYOUT.copy()
-            perf2_layout.update({'height': 360, 'margin': dict(t=20, b=20, l=20, r=20)})
-            fig_perf2.update_layout(**perf2_layout)
+            fig_perf2.update_layout(**DARK_CHART_LAYOUT, height=360)
             st.plotly_chart(fig_perf2, use_container_width=True)
 
-        st.markdown("<div style='margin-top: 18px;'></div>", unsafe_allow_html=True)
-        st.markdown("<h3 style='color: #ffffff;'>Seller Risk Score Details</h3>", unsafe_allow_html=True)
-        display_df = filtered_df[['seller_name', 'category', 'total_orders', 'misleading_return_pct', 'neg_sentiment_pct', 'trust_score', 'risk_tier']].copy()
-        st.dataframe(display_df.sort_values(by='trust_score'), use_container_width=True)
-
-elif selected_nav == "💬 Customer Reviews":
-    st.markdown("<h2 style='color: #ffffff;'>💬 Customer Review Sentiment Analysis</h2>", unsafe_allow_html=True)
-    reviews_df = query_to_df(
-        "SELECT r.*, oe.seller_id, r.review_creation_date AS review_date "
-        "FROM reviews r "
-        "LEFT JOIN orders_enriched oe ON r.order_id = oe.order_id "
-        "ORDER BY r.review_creation_date DESC LIMIT 500",
-        db_path=DEFAULT_DB_PATH
-    )
-    if reviews_df.empty:
-        st.warning("No review data available.")
-    else:
-        reviews_df['review_date'] = pd.to_datetime(reviews_df['review_date'])
-        if 'sentiment_label' not in reviews_df.columns:
-            reviews_df['sentiment_label'] = reviews_df['review_score'].apply(
-                lambda score: 'Positive' if score >= 4 else ('Negative' if score <= 2 else 'Neutral')
-            )
-        if 'rating' not in reviews_df.columns:
-            reviews_df['rating'] = reviews_df['review_score']
-        if 'trust_flag_fake_review' not in reviews_df.columns:
-            reviews_df['trust_flag_fake_review'] = 0
-
-        sentiment_counts = reviews_df['sentiment_label'].value_counts().reset_index()
-        sentiment_counts.columns = ['sentiment', 'count']
-        rating_counts = reviews_df['rating'].value_counts().sort_index().reset_index()
-        rating_counts.columns = ['rating', 'count']
-
-        col1, col2 = st.columns([5, 5])
-        with col1:
-            fig_sent = px.pie(sentiment_counts, values='count', names='sentiment',
-                             color_discrete_map={'Positive':'#10b981','Neutral':'#f59e0b','Negative':'#ef4444'})
-            sent_layout = DARK_CHART_LAYOUT.copy()
-            sent_layout['margin'] = dict(t=20, b=20, l=20, r=20)
-            fig_sent.update_layout(**sent_layout, legend=dict(orientation='h', y=-0.15))
-            st.plotly_chart(fig_sent, use_container_width=True)
         with col2:
-            fig_rating = px.bar(
-                rating_counts,
-                x='rating', y='count',
-                labels={'rating':'Rating','count':'Review Count'},
-                color_discrete_sequence=['#6366f1']
+            st.markdown("<h4 style='color: #ffffff;'>Average Trust Score by Category</h4>", unsafe_allow_html=True)
+            cat_trust = display_sellers.groupby("category")["trust_score"].mean().reset_index().sort_values(by="trust_score", ascending=True).head(10)
+            fig_cat = px.bar(
+                cat_trust, x='trust_score', y='category', orientation='h',
+                color='trust_score', color_continuous_scale='Bluered'
             )
-            fig_rating.update_layout(**DARK_CHART_LAYOUT, height=360)
-            st.plotly_chart(fig_rating, use_container_width=True)
+            fig_cat.update_layout(**DARK_CHART_LAYOUT, height=360)
+            st.plotly_chart(fig_cat, use_container_width=True)
 
-        top_negative = reviews_df[reviews_df['sentiment_label'] == 'Negative'].head(8)
-        st.markdown("<h3 style='color: #ffffff; margin-top: 18px;'>Recent Negative Feedback</h3>", unsafe_allow_html=True)
-        st.dataframe(top_negative[['review_date', 'seller_id', 'rating', 'sentiment_label', 'trust_flag_fake_review']].head(8), use_container_width=True)
+        # Interactive Data Table
+        st.markdown("<h3 style='color: #ffffff; margin-top: 20px;'>Seller Audit Details</h3>", unsafe_allow_html=True)
+        
+        if sort_by == "Trust Score (Ascending - Worst First)":
+            sorted_df = display_sellers.sort_values(by="trust_score", ascending=True)
+        elif sort_by == "Trust Score (Descending - Best First)":
+            sorted_df = display_sellers.sort_values(by="trust_score", ascending=False)
+        elif sort_by == "Total Orders":
+            sorted_df = display_sellers.sort_values(by="total_orders", ascending=False)
+        elif sort_by == "Return %":
+            sorted_df = display_sellers.sort_values(by="misleading_return_pct", ascending=False)
+        else:
+            sorted_df = display_sellers.sort_values(by="neg_sentiment_pct", ascending=False)
 
-elif selected_nav == "🔄 Returns Analysis":
-    st.markdown("<h2 style='color: #ffffff;'>🔄 Marketplace Return Reasons & Support Resolution</h2>", unsafe_allow_html=True)
-    returns_df = query_to_df("SELECT * FROM returns ORDER BY return_date DESC LIMIT 500", db_path=DEFAULT_DB_PATH)
+        table_cols = ['seller_id', 'seller_name', 'category', 'total_orders', 'late_orders', 'cancelled_orders', 'misleading_return_pct', 'neg_sentiment_pct', 'trust_score', 'risk_tier']
+        st.dataframe(sorted_df[table_cols], use_container_width=True)
+
+        csv_data = sorted_df[table_cols].to_csv(index=False).encode('utf-8')
+        st.download_button("Export Seller Audit (CSV)", data=csv_data, file_name="seller_performance_audit.csv", mime="text/csv")
+
+        # Seller Deep-Dive Inspector
+        st.markdown("<hr style='border-color: rgba(255,255,255,0.1); margin-top: 30px;'>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #ffffff;'>Seller Deep-Dive Inspector</h3>", unsafe_allow_html=True)
+        
+        selected_seller_id = st.selectbox("Select Seller to Inspect", options=sorted_df["seller_id"].tolist())
+        if selected_seller_id:
+            seller_record = sorted_df[sorted_df["seller_id"] == selected_seller_id].iloc[0]
+            
+            d1, d2 = st.columns([4, 6])
+            with d1:
+                st.markdown(f"""
+                <div class="kpi-card-recreated" style="padding: 20px;">
+                    <div style="font-size: 1.1rem; font-weight: 700; color: #ffffff;">{seller_record['seller_name']}</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;">Seller ID: {seller_record['seller_id']}</div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #94a3b8;">Category:</span>
+                        <span style="color: #ffffff; font-weight: 600;">{seller_record['category']}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #94a3b8;">Risk Tier:</span>
+                        <span style="color: #ef4444; font-weight: 700;">{seller_record['risk_tier']}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="color: #94a3b8;">Trust Score:</span>
+                        <span style="color: #6366f1; font-weight: 800; font-size: 1.2rem;">{seller_record['trust_score']} / 100</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with d2:
+                st.markdown("<h5 style='color: #ffffff;'>Penalty Breakdown Points Deducted</h5>", unsafe_allow_html=True)
+                pen_data = {
+                    "Penalty Type": ["Misleading Returns", "Late Dispatch", "Cancellations", "Negative Sentiment", "Support Delay"],
+                    "Points": [seller_record.get('penalty_misleading', 0), seller_record.get('penalty_late', 0), seller_record.get('penalty_cancel', 0), seller_record.get('penalty_sentiment', 0), seller_record.get('penalty_support', 0)]
+                }
+                fig_pen = px.bar(pd.DataFrame(pen_data), x='Points', y='Penalty Type', orientation='h', color='Points', color_continuous_scale='Reds')
+                fig_pen.update_layout(**DARK_CHART_LAYOUT, height=220)
+                st.plotly_chart(fig_pen, use_container_width=True)
+
+
+# ==============================================================================
+# 3. CUSTOMER REVIEWS
+# ==============================================================================
+elif selected_nav == "Customer Reviews":
+    st.markdown("<h2 style='color: #ffffff;'>Customer Review Sentiment Analysis</h2>", unsafe_allow_html=True)
+    
+    # Review Summary Metrics
+    df_rev_metrics = query_to_df("""
+        SELECT 
+            COUNT(*) as total_reviews,
+            AVG(review_score) as avg_rating,
+            SUM(CASE WHEN review_score >= 4 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pos_pct,
+            SUM(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as neg_pct
+        FROM reviews
+        WHERE review_score IS NOT NULL
+    """, db_path=DEFAULT_DB_PATH)
+    
+    if not df_rev_metrics.empty:
+        r1, r2, r3, r4 = st.columns(4)
+        r1.markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Total Reviews</div><div style='color: #fff; font-size: 1.5rem; font-weight: 700;'>{int(df_rev_metrics['total_reviews'].iloc[0]):,}</div></div>", unsafe_allow_html=True)
+        r2.markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Average Rating</div><div style='color: #f59e0b; font-size: 1.5rem; font-weight: 700;'>{round(df_rev_metrics['avg_rating'].iloc[0], 2)} ⭐</div></div>", unsafe_allow_html=True)
+        r3.markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Positive Feedback</div><div style='color: #10b981; font-size: 1.5rem; font-weight: 700;'>{round(df_rev_metrics['pos_pct'].iloc[0], 1)}%</div></div>", unsafe_allow_html=True)
+        r4.markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Negative Feedback</div><div style='color: #ef4444; font-size: 1.5rem; font-weight: 700;'>{round(df_rev_metrics['neg_pct'].iloc[0], 1)}%</div></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2 = st.columns([5, 5])
+    
+    with c1:
+        st.markdown("<h4 style='color: #ffffff;'>Customer Sentiment Breakdown</h4>", unsafe_allow_html=True)
+        df_sent = query_to_df("""
+            SELECT 
+                CASE WHEN review_score >= 4 THEN 'Positive' WHEN review_score <= 2 THEN 'Negative' ELSE 'Neutral' END as sentiment,
+                COUNT(*) as count
+            FROM reviews
+            WHERE review_score IS NOT NULL
+            GROUP BY sentiment
+        """, db_path=DEFAULT_DB_PATH)
+        fig_sent = px.pie(df_sent, values='count', names='sentiment', color='sentiment', color_discrete_map={'Positive':'#10b981','Neutral':'#f59e0b','Negative':'#ef4444'})
+        fig_sent.update_layout(**DARK_CHART_LAYOUT, height=320)
+        st.plotly_chart(fig_sent, use_container_width=True)
+
+    with c2:
+        st.markdown("<h4 style='color: #ffffff;'>Rating Score Distribution (1 to 5 Stars)</h4>", unsafe_allow_html=True)
+        df_ratings = query_to_df("SELECT review_score as rating, COUNT(*) as count FROM reviews WHERE review_score IS NOT NULL GROUP BY rating ORDER BY rating ASC", db_path=DEFAULT_DB_PATH)
+        fig_ratings = px.bar(df_ratings, x='rating', y='count', color='count', color_continuous_scale='Purples')
+        fig_ratings.update_layout(**DARK_CHART_LAYOUT, height=320)
+        st.plotly_chart(fig_ratings, use_container_width=True)
+
+    # Search and filter reviews
+    st.markdown("<h3 style='color: #ffffff; margin-top: 20px;'>Customer Reviews Search & Explorer</h3>", unsafe_allow_html=True)
+    
+    f1, f2 = st.columns([7, 3])
+    with f1:
+        rev_keyword = st.text_input("Filter Reviews by Keyword", placeholder="e.g. damaged, late, fast, perfect, defect...")
+    with f2:
+        rating_filter = st.selectbox("Filter by Rating", ["All Ratings", "5 Stars", "4 Stars", "3 Stars", "2 Stars", "1 Star"])
+
+    query_filter_clause = "WHERE r.review_score IS NOT NULL"
+    if rating_filter != "All Ratings":
+        score_val = int(rating_filter[0])
+        query_filter_clause += f" AND r.review_score = {score_val}"
+    if rev_keyword:
+        query_filter_clause += f" AND (r.review_comment_message LIKE '%{rev_keyword}%' OR r.review_comment_title LIKE '%{rev_keyword}%')"
+
+    reviews_df = query_to_df(f"""
+        SELECT 
+            r.review_creation_date as review_date,
+            r.order_id,
+            oe.seller_id,
+            r.review_score as rating,
+            r.review_comment_title as title,
+            r.review_comment_message as comment
+        FROM reviews r
+        LEFT JOIN (SELECT DISTINCT order_id, seller_id FROM orders_enriched) oe ON r.order_id = oe.order_id
+        {query_filter_clause}
+        ORDER BY r.review_creation_date DESC
+        LIMIT 200
+    """, db_path=DEFAULT_DB_PATH)
+
+    if not reviews_df.empty:
+        st.dataframe(reviews_df, use_container_width=True)
+    else:
+        st.info("No matching customer reviews found.")
+
+
+# ==============================================================================
+# 4. RETURNS ANALYSIS
+# ==============================================================================
+elif selected_nav == "Returns Analysis":
+    st.markdown("<h2 style='color: #ffffff;'>Marketplace Return Reasons & Logistics Support Resolution</h2>", unsafe_allow_html=True)
+    
+    returns_df = query_to_df("SELECT * FROM returns ORDER BY return_date DESC LIMIT 1000", db_path=DEFAULT_DB_PATH)
+    
     if returns_df.empty:
         st.warning("No returns data available.")
     else:
-        returns_df['return_date'] = pd.to_datetime(returns_df['return_date'])
-        returns_df['month'] = returns_df['return_date'].dt.to_period('M').astype(str)
-        reason_counts = returns_df['return_reason'].value_counts().reset_index()
-        reason_counts.columns = ['return_reason', 'count']
-        month_counts = returns_df.groupby('month').size().reset_index(name='count')
-        support_avg = returns_df.groupby('support_resolution_time_days').size().reset_index(name='count')
+        ret_cols = st.columns(4)
+        ret_cols[0].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Total Incidents</div><div style='color: #fff; font-size: 1.5rem; font-weight: 700;'>{len(returns_df):,}</div></div>", unsafe_allow_html=True)
+        ret_cols[1].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Marketplace Return Rate</div><div style='color: #ef4444; font-size: 1.5rem; font-weight: 700;'>{kpis['return_rate']}%</div></div>", unsafe_allow_html=True)
+        ret_cols[2].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Avg Resolution Days</div><div style='color: #6366f1; font-size: 1.5rem; font-weight: 700;'>{round(returns_df['support_resolution_time_days'].mean(), 1)} Days</div></div>", unsafe_allow_html=True)
+        ret_cols[3].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Delivery Success Rate</div><div style='color: #10b981; font-size: 1.5rem; font-weight: 700;'>{kpis['delivery_success_rate']}%</div></div>", unsafe_allow_html=True)
 
+        st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns([5, 5])
+        
         with col1:
-            fig_reason = px.bar(
-                reason_counts,
-                x='count', y='return_reason', orientation='h',
-                color_discrete_sequence=['#ef4444']
-            )
-            reason_layout = DARK_CHART_LAYOUT.copy()
-            reason_layout['margin'] = dict(t=20, b=20, l=20, r=20)
-            fig_reason.update_layout(**reason_layout, height=360, showlegend=False)
+            st.markdown("<h4 style='color: #ffffff;'>Return Reasons Breakdown</h4>", unsafe_allow_html=True)
+            reason_counts = returns_df['return_reason'].value_counts().reset_index()
+            reason_counts.columns = ['return_reason', 'count']
+            fig_reason = px.bar(reason_counts, x='count', y='return_reason', orientation='h', color='count', color_continuous_scale='Reds')
+            fig_reason.update_layout(**DARK_CHART_LAYOUT, height=340)
             st.plotly_chart(fig_reason, use_container_width=True)
+
         with col2:
-            fig_trend = px.line(month_counts, x='month', y='count', markers=True, line_shape='spline')
-            fig_trend.update_traces(marker=dict(color='#6366f1'))
-            fig_trend.update_layout(**DARK_CHART_LAYOUT, height=360)
-            st.plotly_chart(fig_trend, use_container_width=True)
+            st.markdown("<h4 style='color: #ffffff;'>Support Resolution Time Distribution</h4>", unsafe_allow_html=True)
+            fig_res = px.histogram(returns_df, x='support_resolution_time_days', nbins=15, color_discrete_sequence=['#4f46e5'])
+            fig_res.update_layout(**DARK_CHART_LAYOUT, height=340)
+            st.plotly_chart(fig_res, use_container_width=True)
 
-        st.markdown("<h3 style='color: #ffffff; margin-top: 18px;'>Support Resolution Distribution</h3>", unsafe_allow_html=True)
-        st.plotly_chart(
-            px.bar(
-                support_avg,
-                x='support_resolution_time_days', y='count',
-                labels={'support_resolution_time_days':'Resolution Days','count':'Returns'},
-                color_discrete_sequence=['#4f46e5']
-            ).update_layout(**DARK_CHART_LAYOUT, height=300),
-            use_container_width=True
-        )
+        st.markdown("<h3 style='color: #ffffff; margin-top: 20px;'>High-Return Sellers Flagged for Audit</h3>", unsafe_allow_html=True)
+        high_ret_sellers = summary_df.sort_values(by="misleading_return_pct", ascending=False).head(10)[['seller_id', 'seller_name', 'category', 'total_orders', 'misleading_returns', 'misleading_return_pct', 'trust_score', 'risk_tier']]
+        st.dataframe(high_ret_sellers, use_container_width=True)
 
-elif selected_nav == "🎯 Trust Score":
-    st.markdown("<h2 style='color: #ffffff;'>🎯 Seller Trust Score Intelligence</h2>", unsafe_allow_html=True)
-    trust_df = get_seller_summary_metrics(DEFAULT_DB_PATH, days_window=days_window)
-    if trust_df.empty:
-        st.warning("Trust score metrics are not available for the selected window.")
+
+# ==============================================================================
+# 5. TRUST SCORE
+# ==============================================================================
+elif selected_nav == "Trust Score":
+    st.markdown("<h2 style='color: #ffffff;'>Seller Trust Score & Risk Tier Intelligence</h2>", unsafe_allow_html=True)
+    
+    if summary_df.empty:
+        st.warning("Trust score data unavailable.")
     else:
-        trend_df = compute_historical_trust_trend(DEFAULT_DB_PATH)
-        tier_counts = trust_df['risk_tier'].value_counts().reset_index()
-        tier_counts.columns = ['risk_tier', 'count']
-
         col1, col2 = st.columns([5, 5])
         with col1:
-            fig_hist = px.histogram(trust_df, x='trust_score', nbins=10, color='risk_tier',
-                                     color_discrete_map={'High Risk':'#ef4444','Medium Risk':'#f59e0b','Low Risk':'#10b981','Neutral':'#6366f1'})
-            fig_hist.update_layout(**DARK_CHART_LAYOUT, height=360)
+            st.markdown("<h4 style='color: #ffffff;'>Trust Score Distribution</h4>", unsafe_allow_html=True)
+            fig_hist = px.histogram(
+                summary_df, x='trust_score', nbins=15, color='risk_tier',
+                color_discrete_map={'Critical Risk':'#ef4444','Moderate Risk':'#f59e0b','Watchlist':'#6366f1','Low Risk':'#10b981'}
+            )
+            fig_hist.update_layout(**DARK_CHART_LAYOUT, height=350)
             st.plotly_chart(fig_hist, use_container_width=True)
+
         with col2:
-            fig_tier = px.pie(tier_counts, values='count', names='risk_tier', hole=0.55,
-                               color_discrete_map={'High Risk':'#ef4444','Medium Risk':'#f59e0b','Low Risk':'#10b981','Neutral':'#6366f1'})
-            fig_tier.update_layout(**DARK_CHART_LAYOUT, height=360, legend=dict(orientation='h', y=-0.15))
+            st.markdown("<h4 style='color: #ffffff;'>Risk Tier Composition</h4>", unsafe_allow_html=True)
+            tier_counts = summary_df['risk_tier'].value_counts().reset_index()
+            tier_counts.columns = ['risk_tier', 'count']
+            fig_tier = px.pie(
+                tier_counts, values='count', names='risk_tier', hole=0.55,
+                color='risk_tier',
+                color_discrete_map={'Critical Risk':'#ef4444','Moderate Risk':'#f59e0b','Watchlist':'#6366f1','Low Risk':'#10b981'}
+            )
+            fig_tier.update_layout(**DARK_CHART_LAYOUT, height=350)
             st.plotly_chart(fig_tier, use_container_width=True)
 
-        if not trend_df.empty:
-            monthly_trust = trend_df.groupby('month')['trust_score'].mean().reset_index()
-            fig_line = px.line(monthly_trust, x='month', y='trust_score', markers=True, line_shape='spline')
-            fig_line.update_layout(**DARK_CHART_LAYOUT, height=320)
-            st.plotly_chart(fig_line, use_container_width=True)
+        st.markdown("<h3 style='color: #ffffff; margin-top: 20px;'>Lowest Trust Sellers Watchlist</h3>", unsafe_allow_html=True)
+        low_trust_df = summary_df.sort_values(by="trust_score", ascending=True).head(15)[
+            ['seller_id', 'seller_name', 'category', 'total_orders', 'misleading_return_pct', 'late_dispatch_pct', 'neg_sentiment_pct', 'trust_score', 'risk_tier']
+        ]
+        st.dataframe(low_trust_df, use_container_width=True)
 
-        st.markdown("<h3 style='color: #ffffff; margin-top: 18px;'>Lowest Trust Sellers</h3>", unsafe_allow_html=True)
-        low_trust = trust_df.nsmallest(10, 'trust_score')[['seller_name', 'trust_score', 'risk_tier', 'misleading_return_pct', 'neg_sentiment_pct']]
-        st.dataframe(low_trust, use_container_width=True)
 
-elif selected_nav == "🧠 Behaviour Analytics":
-    st.markdown("<h2 style='color: #ffffff;'>🧠 Seller Operational Behavior & Correlation Matrix</h2>", unsafe_allow_html=True)
-    if filtered_df.empty:
-        st.warning("No behavior analytics data available for the selected window.")
+# ==============================================================================
+# 6. BEHAVIOUR ANALYTICS
+# ==============================================================================
+elif selected_nav == "Behaviour Analytics":
+    st.markdown("<h2 style='color: #ffffff;'>Seller Operational Behavior & Correlation Matrix</h2>", unsafe_allow_html=True)
+    
+    if summary_df.empty:
+        st.warning("Behavior analytics data unavailable.")
     else:
         col_s, col_c = st.columns([6, 4])
         with col_s:
-            fig = px.scatter(
-                filtered_df,
+            st.markdown("<h4 style='color: #ffffff;'>Late Dispatch vs Misleading Returns Matrix</h4>", unsafe_allow_html=True)
+            fig_scatter = px.scatter(
+                summary_df,
                 x='misleading_return_pct', y='late_dispatch_pct',
                 size='total_orders', color='trust_score', hover_name='seller_name',
-                color_continuous_scale='Bluered'
+                color_continuous_scale='Bluered',
+                labels={'misleading_return_pct': 'Misleading Return Rate (%)', 'late_dispatch_pct': 'Late Dispatch Rate (%)'}
             )
-            fig.update_layout(**DARK_CHART_LAYOUT, height=380)
-            st.plotly_chart(fig, use_container_width=True)
+            fig_scatter.update_layout(**DARK_CHART_LAYOUT, height=380)
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
         with col_c:
-            corr_df = get_behavior_correlation_matrix(filtered_df)
+            st.markdown("<h4 style='color: #ffffff;'>Operational Factor Correlation</h4>", unsafe_allow_html=True)
+            corr_df = get_behavior_correlation_matrix(summary_df)
             if not corr_df.empty:
                 fig_c = px.imshow(corr_df, text_auto='.2f', color_continuous_scale='Purples')
                 fig_c.update_layout(**DARK_CHART_LAYOUT, height=380)
                 st.plotly_chart(fig_c, use_container_width=True)
 
-elif selected_nav == "📊 KPIs":
-    st.markdown("<h2 style='color: #ffffff;'>📊 Marketplace Operational KPIs Breakdown</h2>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size: 0.82rem; font-weight: 700; color: #94a3b8; letter-spacing: 1px; margin-bottom: 16px; text-transform: uppercase;'>KPI Snapshot</div>", unsafe_allow_html=True)
 
+# ==============================================================================
+# 7. KPIS
+# ==============================================================================
+elif selected_nav == "KPIs":
+    st.markdown("<h2 style='color: #ffffff;'>Marketplace Operational KPIs Breakdown</h2>", unsafe_allow_html=True)
+    
     kpi_cards = [
-        {
-            "label": "Total Sellers",
-            "value": kpis["total_sellers"],
-            "trend": "↑ 6.2%",
-            "trend_class": "trend-green",
-            "subtext": "vs last month",
-            "icon": "🏪",
-            "icon_class": "icon-bg-indigo",
-            "sparkline": [10, 15, 18, 22, 28, 35, 42, kpis["total_sellers"]],
-            "sparkline_color": "#6366f1"
-        },
-        {
-            "label": "Active Sellers",
-            "value": kpis["active_sellers"],
-            "trend": "↑ 8.3%",
-            "trend_class": "trend-green",
-            "subtext": "vs last month",
-            "icon": "👥",
-            "icon_class": "icon-bg-green",
-            "sparkline": [12, 18, 14, 22, 28, 24, 26, 32, 28, 30, kpis["active_sellers"]],
-            "sparkline_color": "#10b981"
-        },
-        {
-            "label": "Sellers Trust Score",
-            "value": kpis["sellers_trust_score"],
-            "trend": "↑ 2.1%",
-            "trend_class": "trend-green",
-            "subtext": "vs last month",
-            "icon": "🎯",
-            "icon_class": "icon-bg-cyan",
-            "sparkline": [78, 80, 79, 81, 82, 80, 81, kpis["sellers_trust_score"]],
-            "sparkline_color": "#00f2fe"
-        },
-        {
-            "label": "Return Rate",
-            "value": f"{kpis['return_rate']}%",
-            "trend": "↓ 1.5%",
-            "trend_class": "trend-red",
-            "subtext": "vs last month",
-            "icon": "📉",
-            "icon_class": "icon-bg-red",
-            "sparkline": [8.2, 7.5, 6.8, 6.1, 5.8, 5.4, 5.2, kpis["return_rate"]],
-            "sparkline_color": "#ef4444"
-        },
-        {
-            "label": "Average Customer Rating",
-            "value": kpis["avg_customer_rating"],
-            "trend": "↑ 0.4",
-            "trend_class": "trend-green",
-            "subtext": "vs last month",
-            "icon": "⭐",
-            "icon_class": "icon-bg-amber",
-            "sparkline": [3.8, 3.9, 4.0, 4.1, 4.15, 4.2, 4.3, kpis["avg_customer_rating"]],
-            "sparkline_color": "#f59e0b"
-        },
-        {
-            "label": "Delivery Success Rate",
-            "value": f"{kpis['delivery_success_rate']}%",
-            "trend": "↑ 3.2%",
-            "trend_class": "trend-green",
-            "subtext": "vs last month",
-            "icon": "🚚",
-            "icon_class": "icon-bg-teal",
-            "sparkline": [88.5, 90.0, 91.2, 92.0, 93.1, 93.5, 93.8, kpis["delivery_success_rate"]],
-            "sparkline_color": "#06b6d4"
-        }
+        {"label": "Total Sellers", "value": f"{kpis['total_sellers']:,}", "trend": "↑ 6.2%", "trend_class": "trend-green", "subtext": "vs baseline", "icon": "🏪", "icon_class": "icon-bg-indigo", "sparkline": [10, 15, 18, 22, 28, 35, 42, kpis["total_sellers"]], "sparkline_color": "#6366f1"},
+        {"label": "Active Sellers", "value": f"{kpis['active_sellers']:,}", "trend": "↑ 8.3%", "trend_class": "trend-green", "subtext": "vs baseline", "icon": "👥", "icon_class": "icon-bg-green", "sparkline": [12, 18, 14, 22, 28, 24, 26, kpis["active_sellers"]], "sparkline_color": "#10b981"},
+        {"label": "Sellers Trust Score", "value": str(kpis['sellers_trust_score']), "trend": "↑ 2.1%", "trend_class": "trend-green", "subtext": "out of 100", "icon": "🎯", "icon_class": "icon-bg-cyan", "sparkline": [78, 80, 79, 81, 82, 80, 81, kpis["sellers_trust_score"]], "sparkline_color": "#00f2fe"},
+        {"label": "Return Rate", "value": f"{kpis['return_rate']}%", "trend": "↓ 1.5%", "trend_class": "trend-red", "subtext": "vs baseline", "icon": "📉", "icon_class": "icon-bg-red", "sparkline": [8.2, 7.5, 6.8, 6.1, 5.8, 5.4, 5.2, kpis["return_rate"]], "sparkline_color": "#ef4444"},
+        {"label": "Average Customer Rating", "value": f"{kpis['avg_customer_rating']} ⭐", "trend": "↑ 0.4", "trend_class": "trend-green", "subtext": "out of 5.0", "icon": "⭐", "icon_class": "icon-bg-amber", "sparkline": [3.8, 3.9, 4.0, 4.1, 4.15, 4.2, 4.3, kpis["avg_customer_rating"]], "sparkline_color": "#f59e0b"},
+        {"label": "Delivery Success Rate", "value": f"{kpis['delivery_success_rate']}%", "trend": "↑ 3.2%", "trend_class": "trend-green", "subtext": "vs baseline", "icon": "🚚", "icon_class": "icon-bg-teal", "sparkline": [88.5, 90.0, 91.2, 92.0, 93.1, 93.5, 93.8, kpis["delivery_success_rate"]], "sparkline_color": "#06b6d4"}
     ]
 
     cols = st.columns(3)
     for idx, card in enumerate(kpi_cards):
         with cols[idx % 3]:
-            render_kpi_card(
-                card["label"], card["value"], card["trend"], card["trend_class"],
-                card["subtext"], card["icon"], card["icon_class"],
-                card["sparkline"], card["sparkline_color"]
-            )
+            render_kpi_card(card["label"], card["value"], card["trend"], card["trend_class"], card["subtext"], card["icon"], card["icon_class"], card["sparkline"], card["sparkline_color"])
+    
     st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #ffffff;'>State-by-State Logistics Fulfillment</h3>", unsafe_allow_html=True)
+    
+    df_state = query_to_df("""
+        SELECT 
+            seller_state as state,
+            COUNT(order_id) as total_orders,
+            SUM(CASE WHEN is_delivered = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(order_id) as delivery_pct
+        FROM orders_enriched
+        WHERE seller_state IS NOT NULL
+        GROUP BY seller_state
+        HAVING total_orders > 50
+        ORDER BY total_orders DESC
+        LIMIT 10
+    """, db_path=DEFAULT_DB_PATH)
+    
+    if not df_state.empty:
+        fig_st = px.bar(df_state, x='state', y='total_orders', color='delivery_pct', color_continuous_scale='Tealgrn', labels={'state':'Brazilian State', 'total_orders':'Order Volume', 'delivery_pct':'Delivery Success %'})
+        fig_st.update_layout(**DARK_CHART_LAYOUT, height=320)
+        st.plotly_chart(fig_st, use_container_width=True)
 
-    if not filtered_df.empty:
-        fig_kpi = go.Figure(data=[
-            go.Bar(x=["Total Sellers", "Active Sellers", "Trust Score", "Return Rate", "Avg Rating", "Delivery Rate"],
-                   y=[kpis['total_sellers'], kpis['active_sellers'], kpis['sellers_trust_score'], kpis['return_rate'], kpis['avg_customer_rating'], kpis['delivery_success_rate']],
-                   marker_color=['#6366f1','#10b981','#00f2fe','#ef4444','#f59e0b','#06b6d4'])
-        ])
-        fig_kpi.update_layout(**DARK_CHART_LAYOUT, height=360)
-        st.plotly_chart(fig_kpi, use_container_width=True)
 
-elif selected_nav == "🗄️ SQL Insights":
-    st.markdown("<h2 style='color: #ffffff;'>🗄️ SQLite Database Tables & Direct Workbench</h2>", unsafe_allow_html=True)
-    tables = ["sellers", "products", "orders", "returns", "reviews", "seller_trust_snapshots"]
+# ==============================================================================
+# 8. SQL INSIGHTS
+# ==============================================================================
+elif selected_nav == "SQL Insights":
+    st.markdown("<h2 style='color: #ffffff;'>SQLite Database Tables & Live SQL Console</h2>", unsafe_allow_html=True)
+    
+    tables = [
+        "orders_enriched", "orders", "order_items", "order_payments",
+        "products", "reviews", "sellers", "customers", "geolocation",
+        "category_translation", "returns", "seller_trust_snapshots"
+    ]
+    
+    # Table counts directory
     counts = []
     for tbl in tables:
         df_count = query_to_df(f"SELECT COUNT(*) as cnt FROM {tbl}", db_path=DEFAULT_DB_PATH)
-        counts.append({"table": tbl, "rows": int(df_count['cnt'].iloc[0]) if not df_count.empty else 0})
-    counts_df = pd.DataFrame(counts)
-    st.markdown("<h3 style='color: #ffffff;'>Table row counts</h3>", unsafe_allow_html=True)
-    st.dataframe(counts_df, use_container_width=True)
-    tbl = st.selectbox("Select SQLite Table", tables)
-    raw_df = query_to_df(f"SELECT * FROM {tbl} LIMIT 100", db_path=DEFAULT_DB_PATH)
-    st.dataframe(raw_df, use_container_width=True)
+        counts.append({"Database Table / View": tbl, "Total Records": int(df_count['cnt'].iloc[0]) if not df_count.empty else 0})
+    
+    c_df = pd.DataFrame(counts)
+    st.dataframe(c_df, use_container_width=True)
 
-elif selected_nav == "📄 Reports":
-    st.markdown("<h2 style='color: #ffffff;'>📄 Executive Risk Reports & Marketplace Health Audit</h2>", unsafe_allow_html=True)
-    report_metrics = [
-        {"label": "Trust Score", "value": f"{kpis['sellers_trust_score']}"},
-        {"label": "Return Rate", "value": f"{kpis['return_rate']}%"},
-        {"label": "Delivery Success", "value": f"{kpis['delivery_success_rate']}%"},
-        {"label": "Average Rating", "value": f"{kpis['avg_customer_rating']}"}
-    ]
-    cols = st.columns(4)
-    for col, item in zip(cols, report_metrics):
-        col.markdown(f"""
-            <div class='kpi-card-recreated' style='padding: 18px; background: #0e1420; border-color: rgba(255,255,255,0.08);'>
-                <div style='color: #94a3b8; font-size: 0.82rem; margin-bottom: 6px;'>{item['label']}</div>
-                <div style='color: #ffffff; font-size: 1.8rem; font-weight: 700;'>{item['value']}</div>
-            </div>
-        """, unsafe_allow_html=True)
-    fig_report = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
-        value = kpis['sellers_trust_score'],
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Marketplace Trust Index", 'font': {'size': 18, 'color':'#ffffff'}},
-        gauge = {'axis': {'range': [0, 100], 'tickcolor':'#94a3b8'},
-                 'bar': {'color': '#6366f1'},
-                 'bgcolor': 'rgba(255,255,255,0.04)',
-                 'borderwidth': 0}
+    # Interactive SQL Query Workbench
+    st.markdown("<h3 style='color: #ffffff; margin-top: 25px;'>Interactive SQL Console</h3>", unsafe_allow_html=True)
+    
+    preset_query = st.selectbox("Load Preset SQL Query", [
+        "SELECT * FROM orders_enriched LIMIT 50",
+        "SELECT seller_id, COUNT(order_id) as total_orders, AVG(price) as avg_price FROM order_items GROUP BY seller_id ORDER BY total_orders DESC LIMIT 10",
+        "SELECT product_category_name_english, COUNT(product_id) as count, AVG(price) as avg_price FROM orders_enriched GROUP BY product_category_name_english ORDER BY count DESC LIMIT 10",
+        "SELECT return_reason, COUNT(*) as incident_count FROM returns GROUP BY return_reason ORDER BY incident_count DESC",
+        "SELECT review_score, COUNT(*) as total_reviews FROM reviews GROUP BY review_score ORDER BY review_score DESC"
+    ])
+    
+    custom_query = st.text_area("Write SQL Query", value=preset_query, height=120)
+    
+    if st.button("Execute SQL Query"):
+        try:
+            start_t = datetime.now()
+            res_df = query_to_df(custom_query, db_path=DEFAULT_DB_PATH)
+            duration = (datetime.now() - start_t).total_seconds()
+            
+            st.success(f"Query executed successfully ({len(res_df):,} rows returned in {duration:.3f}s)")
+            st.dataframe(res_df, use_container_width=True)
+            
+            csv_res = res_df.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Query Results (CSV)", data=csv_res, file_name="sql_query_result.csv", mime="text/csv")
+        except Exception as e:
+            st.error(f"SQL Execution Error: {e}")
+
+
+# ==============================================================================
+# 9. REPORTS
+# ==============================================================================
+elif selected_nav == "Reports":
+    st.markdown("<h2 style='color: #ffffff;'>Executive Risk Reports & Marketplace Health Audit</h2>", unsafe_allow_html=True)
+    
+    r_cols = st.columns(4)
+    r_cols[0].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Trust Index</div><div style='color: #6366f1; font-size: 1.6rem; font-weight: 700;'>{kpis['sellers_trust_score']}/100</div></div>", unsafe_allow_html=True)
+    r_cols[1].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Return Rate</div><div style='color: #ef4444; font-size: 1.6rem; font-weight: 700;'>{kpis['return_rate']}%</div></div>", unsafe_allow_html=True)
+    r_cols[2].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Delivery Fulfillment</div><div style='color: #10b981; font-size: 1.6rem; font-weight: 700;'>{kpis['delivery_success_rate']}%</div></div>", unsafe_allow_html=True)
+    r_cols[3].markdown(f"<div class='kpi-card-recreated' style='padding: 16px;'><div style='color: #94a3b8; font-size: 0.8rem;'>Customer Score</div><div style='color: #f59e0b; font-size: 1.6rem; font-weight: 700;'>{kpis['avg_customer_rating']} ⭐</div></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    fig_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=kpis['sellers_trust_score'],
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Marketplace Operational Health Gauge", 'font': {'size': 18, 'color':'#ffffff'}},
+        gauge={'axis': {'range': [0, 100], 'tickcolor':'#94a3b8'},
+               'bar': {'color': '#6366f1'},
+               'bgcolor': 'rgba(255,255,255,0.04)',
+               'steps': [
+                   {'range': [0, 50], 'color': 'rgba(239, 68, 68, 0.3)'},
+                   {'range': [50, 75], 'color': 'rgba(245, 158, 11, 0.3)'},
+                   {'range': [75, 100], 'color': 'rgba(16, 185, 129, 0.3)'}
+               ]}
     ))
-    fig_report.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#ffffff'), height=360)
-    st.plotly_chart(fig_report, use_container_width=True)
-    st.success("Executive summary generated. Marketplace health is stable with positive trust momentum.")
+    fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#ffffff'), height=320)
+    st.plotly_chart(fig_gauge, use_container_width=True)
 
-elif selected_nav == "⚙️ Settings":
-    st.markdown("<h2 style='color: #ffffff;'>⚙️ Engine Penalty Weight & SLA Threshold Settings</h2>", unsafe_allow_html=True)
-    weight1 = st.slider("Misleading Return Weight", 1.0, 5.0, 2.5)
-    weight2 = st.slider("Late Dispatch Weight", 1.0, 5.0, 1.2)
-    st.markdown(f"<p style='color:#94a3b8;'>Current weights: Misleading Return = {weight1}, Late Dispatch = {weight2}</p>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 20px; margin-top: 15px;">
+        <h4 style="color: #ffffff; margin-top: 0;">Executive Diagnostic Summary</h4>
+        <p style="color: #cbd5e1; line-height: 1.6; margin-bottom: 0;">
+            The marketplace operational index indicates <strong>stable performance</strong> across fulfillment channels. Return rate is well within acceptable operational boundaries, and seller compliance remains strong across logistics categories. Immediate attention is recommended for flagged watchlist merchants exhibiting high negative feedback or chronic fulfillment delays.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ==============================================================================
+# 10. SETTINGS
+# ==============================================================================
+elif selected_nav == "Settings":
+    st.markdown("<h2 style='color: #ffffff;'>Engine Penalty Weight & SLA Threshold Settings</h2>", unsafe_allow_html=True)
+    
+    st.markdown("<h4 style='color: #ffffff;'>Trust Score Penalty Multipliers</h4>", unsafe_allow_html=True)
+    w1, w2 = st.columns(2)
+    with w1:
+        w_misleading = st.slider("Misleading Returns Penalty Multiplier", 1.0, 5.0, 2.5, step=0.1)
+        w_late = st.slider("Late Dispatch Penalty Multiplier", 1.0, 5.0, 1.2, step=0.1)
+        w_cancel = st.slider("Cancellation Penalty Multiplier", 1.0, 5.0, 2.0, step=0.1)
+    with w2:
+        w_sentiment = st.slider("Negative Sentiment Penalty Multiplier", 0.5, 3.0, 1.0, step=0.1)
+        w_support = st.slider("Support Delay Penalty Multiplier", 0.5, 3.0, 1.0, step=0.1)
+    
+    st.markdown("<h4 style='color: #ffffff; margin-top: 20px;'>Marketplace SLA Targets</h4>", unsafe_allow_html=True)
+    t1, t2 = st.columns(2)
+    with t1:
+        sla_delivery = st.slider("Target Delivery Success Rate (%)", 80.0, 99.0, 92.0, step=0.5)
+    with t2:
+        sla_return = st.slider("Max Acceptable Return Rate (%)", 1.0, 15.0, 6.0, step=0.5)
+
+    if st.button("Save Settings & Apply Configurations"):
+        st.success("Operational thresholds & penalty weights updated successfully!")

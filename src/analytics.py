@@ -22,7 +22,8 @@ def get_seller_summary_metrics(db_path: str = DEFAULT_DB_PATH, days_window: int 
         SELECT 
             order_id, 
             seller_id, 
-            COALESCE(seller_city, seller_id) as seller_name,
+            COALESCE(seller_city, 'Marketplace') as seller_city,
+            COALESCE(seller_state, 'BR') as seller_state,
             COALESCE(product_category_name_english, 'General') as category,
             order_purchase_timestamp as order_date,
             CASE 
@@ -40,7 +41,8 @@ def get_seller_summary_metrics(db_path: str = DEFAULT_DB_PATH, days_window: int 
             """
             SELECT 
                 order_id, seller_id, 
-                COALESCE(seller_city, seller_id) as seller_name,
+                COALESCE(seller_city, 'Marketplace') as seller_city,
+                COALESCE(seller_state, 'BR') as seller_state,
                 COALESCE(product_category_name_english, 'General') as category,
                 order_purchase_timestamp as order_date,
                 CASE WHEN delivery_delay_days > 0 THEN 'Delayed' WHEN order_status = 'canceled' THEN 'Cancelled_By_Seller' ELSE 'Delivered' END as shipping_status
@@ -50,7 +52,16 @@ def get_seller_summary_metrics(db_path: str = DEFAULT_DB_PATH, days_window: int 
         )
     
     if orders_df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=[
+            "seller_id", "seller_name", "seller_city", "seller_state", "category", "total_orders", "late_orders",
+            "cancelled_orders", "misleading_returns", "total_returns", "avg_support_days",
+            "total_reviews", "negative_reviews", "avg_sentiment", "fake_reviews",
+            "trust_score", "risk_tier", "misleading_return_pct", "late_dispatch_pct",
+            "cancellation_pct", "neg_sentiment_pct", "penalty_misleading",
+            "penalty_late", "penalty_cancel", "penalty_sentiment", "penalty_support"
+        ])
+
+    orders_df["seller_name"] = "Seller #" + orders_df["seller_id"].astype(str).str[:8].str.upper() + " (" + orders_df["seller_city"].astype(str).str.title() + ")"
 
     where_ret = f"WHERE date(return_date) >= date('{ref_date}', '-{days_window} days')" if days_window and days_window > 0 and ref_date else ""
     returns_df = query_to_df(
@@ -77,7 +88,7 @@ def get_seller_summary_metrics(db_path: str = DEFAULT_DB_PATH, days_window: int 
     )
     
     # Group orders by seller
-    order_counts = orders_df.groupby(["seller_id", "seller_name", "category"]).agg(
+    order_counts = orders_df.groupby(["seller_id", "seller_name", "seller_city", "seller_state", "category"]).agg(
         total_orders=("order_id", "count"),
         late_orders=("shipping_status", lambda x: (x == "Delayed").sum()),
         cancelled_orders=("shipping_status", lambda x: (x == "Cancelled_By_Seller").sum()),

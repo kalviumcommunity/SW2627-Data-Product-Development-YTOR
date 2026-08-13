@@ -140,8 +140,7 @@ CREATE TABLE IF NOT EXISTS seller_trust_snapshots (
 );
 
 -- Returns view based on cleaned order items & status
-DROP VIEW IF EXISTS returns;
-CREATE VIEW returns AS
+CREATE VIEW IF NOT EXISTS returns AS
 SELECT 
     ('RET-' || oe.order_id || '-' || COALESCE(oe.order_item_id, 1)) AS return_id,
     oe.order_id,

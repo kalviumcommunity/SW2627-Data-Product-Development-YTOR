@@ -17,6 +17,12 @@ def get_connection(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def init_db(db_path: str = DEFAULT_DB_PATH, schema_path: str = SCHEMA_PATH) -> None:
     """Initializes the database schema."""
     conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT type FROM sqlite_master WHERE name='returns'")
+    row = cur.fetchone()
+    if row:
+        cur.execute(f"DROP {row[0].upper()} IF EXISTS returns")
+        conn.commit()
     if os.path.exists(schema_path):
         with open(schema_path, "r", encoding="utf-8") as f:
             schema_sql = f.read()
