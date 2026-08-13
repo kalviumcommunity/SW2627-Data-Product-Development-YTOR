@@ -1,3 +1,19 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Generated datasets
 data/processed/orders_features.csv
-data/cleaned/orders_enriched_cleaned.csvdata/ytor.db
+data/cleaned/orders_enriched_cleaned.csv
