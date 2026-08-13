@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
-from src.db import get_connection, init_db, DEFAULT_DB_PATH
+from src.db import get_connection, init_db, load_cleaned_data_to_db, DEFAULT_DB_PATH
 
 CATEGORIES = ["Electronics", "Fashion", "Home & Kitchen", "Beauty & Care", "Sports & Outdoors", "Automotive"]
 
@@ -47,17 +47,9 @@ REVIEW_TEMPLATES = {
 }
 
 def generate_dataset(db_path: str = DEFAULT_DB_PATH, num_days: int = 180, seed: int = 42) -> None:
-    """Generates synthetic dataset simulating marketplace dynamics over time."""
-    random.seed(seed)
-    np.random.seed(seed)
-    
-    init_db(db_path)
-    conn = get_connection(db_path)
-    cursor = conn.cursor()
-    
-    # Clear existing data
-    for table in ["seller_trust_snapshots", "reviews", "returns", "orders", "products", "sellers"]:
-        cursor.execute(f"DELETE FROM {table}")
+    """Populates the database with cleaned dataset from data/cleaned/."""
+    load_cleaned_data_to_db(db_path=db_path)
+    return
         
     end_date = datetime.now()
     start_date = end_date - timedelta(days=num_days)
