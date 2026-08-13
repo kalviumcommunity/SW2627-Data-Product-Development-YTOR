@@ -6,7 +6,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-from src.db import DEFAULT_DB_PATH, query_to_df, init_db
+from src.db import DEFAULT_DB_PATH, query_to_df, init_db, load_cleaned_data_to_db
 from src.generator import generate_dataset
 from src.analytics import (
     get_seller_summary_metrics,
@@ -30,9 +30,9 @@ if os.path.exists(styles_path):
     with open(styles_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# Ensure database exists
+# Ensure database exists with cleaned datasets
 if not os.path.exists(DEFAULT_DB_PATH):
-    generate_dataset(db_path=DEFAULT_DB_PATH, num_days=180, seed=42)
+    load_cleaned_data_to_db(db_path=DEFAULT_DB_PATH)
 
 # Helper function for full-width sparkline (matching user uploaded image card style)
 def create_fullwidth_sparkline(y_values, color="#10b981"):
@@ -584,11 +584,26 @@ elif selected_nav == "🏪 Seller Performance":
 
 elif selected_nav == "💬 Customer Reviews":
     st.markdown("<h2 style='color: #ffffff;'>💬 Customer Review Sentiment Analysis</h2>", unsafe_allow_html=True)
-    reviews_df = query_to_df("SELECT * FROM reviews ORDER BY review_date DESC LIMIT 500", db_path=DEFAULT_DB_PATH)
+    reviews_df = query_to_df(
+        "SELECT r.*, oe.seller_id, r.review_creation_date AS review_date "
+        "FROM reviews r "
+        "LEFT JOIN orders_enriched oe ON r.order_id = oe.order_id "
+        "ORDER BY r.review_creation_date DESC LIMIT 500",
+        db_path=DEFAULT_DB_PATH
+    )
     if reviews_df.empty:
         st.warning("No review data available.")
     else:
         reviews_df['review_date'] = pd.to_datetime(reviews_df['review_date'])
+        if 'sentiment_label' not in reviews_df.columns:
+            reviews_df['sentiment_label'] = reviews_df['review_score'].apply(
+                lambda score: 'Positive' if score >= 4 else ('Negative' if score <= 2 else 'Neutral')
+            )
+        if 'rating' not in reviews_df.columns:
+            reviews_df['rating'] = reviews_df['review_score']
+        if 'trust_flag_fake_review' not in reviews_df.columns:
+            reviews_df['trust_flag_fake_review'] = 0
+
         sentiment_counts = reviews_df['sentiment_label'].value_counts().reset_index()
         sentiment_counts.columns = ['sentiment', 'count']
         rating_counts = reviews_df['rating'].value_counts().sort_index().reset_index()

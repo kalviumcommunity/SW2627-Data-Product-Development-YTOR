@@ -5,6 +5,7 @@ from typing import Dict
 
 import pandas as pd
 from src.intake_validation import generate_validation_report
+from src.type_enforcement import enforce_types
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 RAW_DATA_DIR = ROOT_DIR / "raw data"
@@ -181,6 +182,70 @@ def clean_datasets(raw_data_dir: Path | str = RAW_DATA_DIR, output_dir: Path | s
     products = pd.read_csv(products_path, encoding="utf-8-sig")
     sellers = pd.read_csv(sellers_path, encoding="utf-8-sig")
     category_translation = pd.read_csv(category_translation_path, encoding="utf-8-sig")
+
+    # --------------------
+    # Type enforcement (conservative, non-destructive)
+    # Save per-table reports under data/type_enforcement_reports/
+    type_report_dir = ROOT_DIR / "data" / "type_enforcement_reports"
+    _ensure_output_dir(type_report_dir)
+
+    # order_items
+    oi_spec = {
+        "price": {"type": "float"},
+        "freight_value": {"type": "float"},
+        "shipping_limit_date": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+    }
+    oi_reports = enforce_types(order_items, oi_spec, fail_on_error=False)
+    (type_report_dir / "order_items_type_report.json").write_text(str(oi_reports))
+
+    # order_payments
+    op_spec = {
+        "payment_value": {"type": "float"},
+        "payment_installments": {"type": "int"},
+    }
+    op_reports = enforce_types(order_payments, op_spec, fail_on_error=False)
+    (type_report_dir / "order_payments_type_report.json").write_text(str(op_reports))
+
+    # reviews
+    rv_spec = {
+        "review_score": {"type": "int"},
+        "review_creation_date": {"type": "datetime", "format": "%Y-%m-%d", "errors": "coerce"},
+        "review_answer_timestamp": {"type": "datetime", "format": "%Y-%m-%d", "errors": "coerce"},
+    }
+    rv_reports = enforce_types(reviews, rv_spec, fail_on_error=False)
+    (type_report_dir / "reviews_type_report.json").write_text(str(rv_reports))
+
+    # orders
+    ord_spec = {
+        "order_purchase_timestamp": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+        "order_approved_at": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+        "order_delivered_carrier_date": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+        "order_delivered_customer_date": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+        "order_estimated_delivery_date": {"type": "datetime", "format": "%Y-%m-%d %H:%M:%S", "errors": "coerce"},
+    }
+    ord_reports = enforce_types(orders, ord_spec, fail_on_error=False)
+    (type_report_dir / "orders_type_report.json").write_text(str(ord_reports))
+
+    # products
+    prod_spec = {
+        "product_name_lenght": {"type": "int"},
+        "product_description_lenght": {"type": "int"},
+        "product_photos_qty": {"type": "int"},
+        "product_weight_g": {"type": "float"},
+        "product_length_cm": {"type": "float"},
+        "product_height_cm": {"type": "float"},
+        "product_width_cm": {"type": "float"},
+    }
+    prod_reports = enforce_types(products, prod_spec, fail_on_error=False)
+    (type_report_dir / "products_type_report.json").write_text(str(prod_reports))
+
+    # customers and sellers zip codes
+    cust_spec = {"customer_zip_code_prefix": {"type": "int"}}
+    sellers_spec = {"seller_zip_code_prefix": {"type": "int"}}
+    cust_reports = enforce_types(customers, cust_spec, fail_on_error=False)
+    sellers_reports = enforce_types(sellers, sellers_spec, fail_on_error=False)
+    (type_report_dir / "customers_type_report.json").write_text(str(cust_reports))
+    (type_report_dir / "sellers_type_report.json").write_text(str(sellers_reports))
 
     # Customer and seller geography
     customers["customer_id"] = customers["customer_id"].astype(str).str.strip()

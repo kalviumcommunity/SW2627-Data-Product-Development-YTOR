@@ -9,34 +9,73 @@ def get_seller_summary_metrics(db_path: str = DEFAULT_DB_PATH, days_window: int 
     Retrieves and aggregates seller operational metrics over a given sliding window,
     then calculates trust scores and risk tiers using Pandas & NumPy.
     """
+    # Find dataset max date to anchor sliding window
+    ref_df = query_to_df("SELECT MAX(date(order_purchase_timestamp)) as max_d FROM orders_enriched", db_path=db_path)
+    ref_date = ref_df["max_d"].iloc[0] if not ref_df.empty and ref_df["max_d"].iloc[0] else None
+
+    where_clause = ""
+    if days_window and days_window > 0 and ref_date:
+        where_clause = f"WHERE date(order_purchase_timestamp) >= date('{ref_date}', '-{days_window} days')"
+
     orders_df = query_to_df(
         f"""
-        SELECT o.order_id, o.seller_id, o.order_date, o.shipping_status, o.cancellation_reason, s.seller_name, s.category
-        FROM orders o
-        JOIN sellers s ON o.seller_id = s.seller_id
-        WHERE date(o.order_date) >= date('now', '-{days_window} days')
+        SELECT 
+            order_id, 
+            seller_id, 
+            COALESCE(seller_city, seller_id) as seller_name,
+            COALESCE(product_category_name_english, 'General') as category,
+            order_purchase_timestamp as order_date,
+            CASE 
+                WHEN delivery_delay_days > 0 THEN 'Delayed' 
+                WHEN order_status = 'canceled' THEN 'Cancelled_By_Seller' 
+                ELSE 'Delivered' 
+            END as shipping_status
+        FROM orders_enriched
+        {where_clause}
         """, db_path=db_path
     )
+
+    if orders_df.empty:
+        orders_df = query_to_df(
+            """
+            SELECT 
+                order_id, seller_id, 
+                COALESCE(seller_city, seller_id) as seller_name,
+                COALESCE(product_category_name_english, 'General') as category,
+                order_purchase_timestamp as order_date,
+                CASE WHEN delivery_delay_days > 0 THEN 'Delayed' WHEN order_status = 'canceled' THEN 'Cancelled_By_Seller' ELSE 'Delivered' END as shipping_status
+            FROM orders_enriched
+            WHERE seller_id IS NOT NULL
+            """, db_path=db_path
+        )
     
+    if orders_df.empty:
+        return pd.DataFrame()
+
+    where_ret = f"WHERE date(return_date) >= date('{ref_date}', '-{days_window} days')" if days_window and days_window > 0 and ref_date else ""
     returns_df = query_to_df(
         f"""
         SELECT return_id, order_id, seller_id, return_reason, support_resolution_time_days
         FROM returns
-        WHERE date(return_date) >= date('now', '-{days_window} days')
+        {where_ret}
         """, db_path=db_path
     )
     
+    where_rev = f"WHERE date(r.review_creation_date) >= date('{ref_date}', '-{days_window} days')" if days_window and days_window > 0 and ref_date else ""
     reviews_df = query_to_df(
         f"""
-        SELECT review_id, order_id, seller_id, rating, sentiment_score, sentiment_label, trust_flag_fake_review
-        FROM reviews
-        WHERE date(review_date) >= date('now', '-{days_window} days')
+        SELECT 
+            r.review_id, r.order_id, oe.seller_id, 
+            r.review_score as rating, 
+            (r.review_score - 3) / 2.0 as sentiment_score,
+            CASE WHEN r.review_score >= 4 THEN 'Positive' WHEN r.review_score <= 2 THEN 'Negative' ELSE 'Neutral' END as sentiment_label,
+            0 as trust_flag_fake_review
+        FROM reviews r
+        JOIN orders_enriched oe ON r.order_id = oe.order_id
+        {where_rev}
         """, db_path=db_path
     )
     
-    if orders_df.empty:
-        return pd.DataFrame()
-        
     # Group orders by seller
     order_counts = orders_df.groupby(["seller_id", "seller_name", "category"]).agg(
         total_orders=("order_id", "count"),
@@ -127,12 +166,13 @@ def compute_historical_trust_trend(db_path: str = DEFAULT_DB_PATH) -> pd.DataFra
     Computes monthly seller trust scores over past dates to visualize trust decay trends.
     """
     query = """
-    SELECT o.seller_id, strftime('%Y-%m', o.order_date) as month,
-           COUNT(o.order_id) as total_orders,
-           SUM(CASE WHEN o.shipping_status = 'Delayed' THEN 1 ELSE 0 END) as late_orders,
-           SUM(CASE WHEN o.shipping_status = 'Cancelled_By_Seller' THEN 1 ELSE 0 END) as cancelled_orders
-    FROM orders o
-    GROUP BY o.seller_id, month
+    SELECT seller_id, strftime('%Y-%m', order_purchase_timestamp) as month,
+           COUNT(order_id) as total_orders,
+           SUM(CASE WHEN delivery_delay_days > 0 THEN 1 ELSE 0 END) as late_orders,
+           SUM(CASE WHEN order_status = 'canceled' THEN 1 ELSE 0 END) as cancelled_orders
+    FROM orders_enriched
+    WHERE seller_id IS NOT NULL
+    GROUP BY seller_id, month
     ORDER BY month ASC
     """
     df_orders = query_to_df(query, db_path=db_path)
@@ -147,12 +187,13 @@ def compute_historical_trust_trend(db_path: str = DEFAULT_DB_PATH) -> pd.DataFra
     df_returns = query_to_df(query_ret, db_path=db_path)
     
     query_rev = """
-    SELECT seller_id, strftime('%Y-%m', review_date) as month,
-           COUNT(review_id) as total_reviews,
-           SUM(CASE WHEN sentiment_label = 'Negative' THEN 1 ELSE 0 END) as negative_reviews,
-           AVG(sentiment_score) as avg_sentiment
-    FROM reviews
-    GROUP BY seller_id, month
+    SELECT oe.seller_id, strftime('%Y-%m', r.review_creation_date) as month,
+           COUNT(r.review_id) as total_reviews,
+           SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) as negative_reviews,
+           AVG((r.review_score - 3) / 2.0) as avg_sentiment
+    FROM reviews r
+    JOIN orders_enriched oe ON r.order_id = oe.order_id
+    GROUP BY oe.seller_id, month
     """
     df_reviews = query_to_df(query_rev, db_path=db_path)
     
@@ -188,7 +229,7 @@ def get_behavior_correlation_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
 def get_marketplace_kpis(db_path: str = DEFAULT_DB_PATH, days_window: int = 90) -> Dict[str, Any]:
     """Calculates the 6 core operational KPIs for the marketplace dashboard overview."""
-    df_sellers = query_to_df("SELECT COUNT(*) as count FROM sellers", db_path=db_path)
+    df_sellers = query_to_df("SELECT COUNT(DISTINCT seller_id) as count FROM sellers", db_path=db_path)
     total_sellers = int(df_sellers["count"].iloc[0]) if not df_sellers.empty else 0
     
     summary_df = get_seller_summary_metrics(db_path=db_path, days_window=days_window)
@@ -206,33 +247,24 @@ def get_marketplace_kpis(db_path: str = DEFAULT_DB_PATH, days_window: int = 90) 
     sellers_trust_score = round(float(summary_df["trust_score"].mean()), 1)
     
     # Calculate marketplace return rate
-    query_ret = f"""
-    SELECT COUNT(r.return_id) as total_ret, (SELECT COUNT(o.order_id) FROM orders o WHERE date(o.order_date) >= date('now', '-{days_window} days')) as total_ord
-    FROM returns r
-    WHERE date(r.return_date) >= date('now', '-{days_window} days')
-    """
-    df_ret = query_to_df(query_ret, db_path=db_path)
-    if not df_ret.empty and df_ret["total_ord"].iloc[0] > 0:
-        return_rate = round(float(df_ret["total_ret"].iloc[0] / df_ret["total_ord"].iloc[0] * 100), 1)
+    df_ret = query_to_df("SELECT COUNT(*) as total_ret FROM returns", db_path=db_path)
+    df_ord = query_to_df("SELECT COUNT(*) as total_ord FROM orders", db_path=db_path)
+    if not df_ret.empty and not df_ord.empty and df_ord["total_ord"].iloc[0] > 0:
+        return_rate = round(float(df_ret["total_ret"].iloc[0] / df_ord["total_ord"].iloc[0] * 100), 1)
     else:
         return_rate = 0.0
         
     # Calculate average rating
-    query_rev = f"""
-    SELECT AVG(rating) as avg_rating FROM reviews WHERE date(review_date) >= date('now', '-{days_window} days')
-    """
-    df_rev = query_to_df(query_rev, db_path=db_path)
+    df_rev = query_to_df("SELECT AVG(review_score) as avg_rating FROM reviews WHERE review_score IS NOT NULL", db_path=db_path)
     avg_customer_rating = round(float(df_rev["avg_rating"].iloc[0]), 2) if not df_rev.empty and df_rev["avg_rating"].iloc[0] else 4.2
     
     # Calculate delivery success rate
-    query_deliv = f"""
-    SELECT 
-        COUNT(order_id) as total_orders,
-        SUM(CASE WHEN shipping_status = 'Delivered' THEN 1 ELSE 0 END) as successful_orders
-    FROM orders
-    WHERE date(order_date) >= date('now', '-{days_window} days')
-    """
-    df_deliv = query_to_df(query_deliv, db_path=db_path)
+    df_deliv = query_to_df("""
+        SELECT 
+            COUNT(order_id) as total_orders,
+            SUM(CASE WHEN is_delivered = 1 OR order_status = 'delivered' THEN 1 ELSE 0 END) as successful_orders
+        FROM orders
+    """, db_path=db_path)
     if not df_deliv.empty and df_deliv["total_orders"].iloc[0] > 0:
         delivery_success_rate = round(float(df_deliv["successful_orders"].iloc[0] / df_deliv["total_orders"].iloc[0] * 100), 1)
     else:
@@ -246,4 +278,5 @@ def get_marketplace_kpis(db_path: str = DEFAULT_DB_PATH, days_window: int = 90) 
         "avg_customer_rating": avg_customer_rating,
         "delivery_success_rate": delivery_success_rate
     }
+
 

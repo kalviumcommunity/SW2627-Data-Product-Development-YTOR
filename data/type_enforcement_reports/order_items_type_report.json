@@ -1,0 +1,1 @@
+{'price': {'status': 'success', 'before_dtype': 'float64', 'after_dtype': 'Float64'}, 'freight_value': {'status': 'success', 'before_dtype': 'float64', 'after_dtype': 'Float64'}, 'shipping_limit_date': {'status': 'success', 'before_dtype': 'str', 'after_dtype': 'datetime64[us]', 'converted_count': 112650, 'failed_samples': []}}
